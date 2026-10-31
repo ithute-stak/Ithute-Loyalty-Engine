@@ -31,6 +31,7 @@ jobs:
         run: |
           PGPASSWORD=ci_test_only psql -h 127.0.0.1 -U loyalty -d loyalty -v ON_ERROR_STOP=1 -c "CREATE ROLE loyalty_rls LOGIN PASSWORD 'ci_rls_only'"
           PGPASSWORD=ci_test_only psql -h 127.0.0.1 -U loyalty -d loyalty -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO loyalty_rls; GRANT SELECT, INSERT ON public.branches TO loyalty_rls"
+      - run: python -m compileall -q loyalty_api tests migrations
       - run: python -m pytest -q
       - run: alembic check
       - run: docker build -t loyalty-ci .
