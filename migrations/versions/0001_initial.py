@@ -20,7 +20,7 @@ def upgrade():
         sa.Column("name", sa.String(200), nullable=False),
         sa.Column("slug", sa.String(100), nullable=False, unique=True),
         sa.Column("status", sa.String(20), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     )
     for table in ("branches", "loyalty_programmes"):
         op.create_table(
@@ -29,7 +29,7 @@ def upgrade():
             sa.Column("tenant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False),
             sa.Column("code", sa.String(64), nullable=False),
             sa.Column("name", sa.String(200), nullable=False),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
             sa.UniqueConstraint("tenant_id", "code", name=f"uq_{'branch' if table == 'branches' else 'programme'}_tenant_code"),
             sa.UniqueConstraint("tenant_id", "id", name=f"uq_{'branch' if table == 'branches' else 'programme'}_tenant_id"),
         )
