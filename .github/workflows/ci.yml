@@ -37,3 +37,12 @@ jobs:
       - run: python -m pytest -q
       - run: alembic check
       - run: docker build -t loyalty-ci .
+      - name: Validate Docker Compose configuration
+        env:
+          POSTGRES_DB: loyalty
+          POSTGRES_USER: loyalty
+          POSTGRES_PASSWORD: ci_test_only
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          rm .env
