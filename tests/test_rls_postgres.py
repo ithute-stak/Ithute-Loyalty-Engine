@@ -20,6 +20,8 @@ async def test_two_tenant_branch_rls():
     app = create_async_engine(url)
     tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
     branch_a, branch_b = uuid.uuid4(), uuid.uuid4()
+    user_a, user_b = uuid.uuid4(), uuid.uuid4()
+    programme_a, programme_b = uuid.uuid4(), uuid.uuid4()
     try:
         async with app.connect() as conn:
             restricted = (await conn.execute(text("""
@@ -42,6 +44,16 @@ async def test_two_tenant_branch_rls():
                     INSERT INTO branches(id,tenant_id,code,name)
                     VALUES (:id,:tenant,'TEST','RLS fixture')
                 """), {"id":branch, "tenant":tenant})
+                user = user_a if tenant == tenant_a else user_b
+                programme = programme_a if tenant == tenant_a else programme_b
+                await conn.execute(text("""
+                    INSERT INTO company_users(id,tenant_id,external_subject,display_name,status)
+                    VALUES (:id,:tenant,:subject,'Test user','active')
+                """), {"id":user, "tenant":tenant, "subject":str(user)})
+                await conn.execute(text("""
+                    INSERT INTO loyalty_programmes(id,tenant_id,code,name)
+                    VALUES (:id,:tenant,'TEST','Test programme')
+                """), {"id":programme, "tenant":tenant})
         for current, own, other in ((tenant_a, branch_a, branch_b),
                                     (tenant_b, branch_b, branch_a)):
             async with app.begin() as conn:
@@ -55,6 +67,15 @@ async def test_two_tenant_branch_rls():
                     SELECT id FROM branches WHERE id IN (:a,:b)
                 """), {"a":branch_a,"b":branch_b})).scalars().all()
                 assert visible == [own]
+                for table, ids in (
+                    ("company_users", (user_a, user_b)),
+                    ("loyalty_programmes", (programme_a, programme_b)),
+                ):
+                    result = (await conn.execute(
+                        text(f"SELECT id FROM {table} WHERE id IN (:a,:b)"),
+                        {"a":ids[0], "b":ids[1]},
+                    )).scalars().all()
+                    assert result == [ids[0] if current == tenant_a else ids[1]]
                 # A tenant A connection cannot write into B, even if it has INSERT.
                 with pytest.raises(Exception):
                     async with conn.begin_nested():
@@ -70,6 +91,8 @@ async def test_two_tenant_branch_rls():
                     await conn.execute(text("SELECT set_config('app.tenant_id', :id, true)"),
                                        {"id":str(tenant)})
                     await conn.execute(text("DELETE FROM branches WHERE tenant_id=:id"),{"id":tenant})
+                    await conn.execute(text("DELETE FROM company_users WHERE tenant_id=:id"),{"id":tenant})
+                    await conn.execute(text("DELETE FROM loyalty_programmes WHERE tenant_id=:id"),{"id":tenant})
                 await conn.execute(text("DELETE FROM tenants WHERE id IN (:a,:b)"),
                                    {"a":tenant_a,"b":tenant_b})
         finally:
