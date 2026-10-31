@@ -30,7 +30,9 @@ jobs:
       - name: Create restricted RLS test role
         run: |
           PGPASSWORD=ci_test_only psql -h 127.0.0.1 -U loyalty -d loyalty -v ON_ERROR_STOP=1 -c "CREATE ROLE loyalty_rls LOGIN PASSWORD 'ci_rls_only'"
-          PGPASSWORD=ci_test_only psql -h 127.0.0.1 -U loyalty -d loyalty -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO loyalty_rls; GRANT SELECT, INSERT ON public.branches TO loyalty_rls"
+          PGPASSWORD=ci_test_only psql -h 127.0.0.1 -U loyalty -d loyalty -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO loyalty_rls; GRANT SELECT, INSERT ON public.branches TO loyalty_rls; GRANT SELECT ON public.company_users, public.loyalty_programmes TO loyalty_rls"
+      - name: Require PostgreSQL RLS test configuration
+        run: test -n "$TEST_RLS_DATABASE_URL"
       - run: python -m compileall -q loyalty_api tests migrations
       - run: python -m pytest -q
       - run: alembic check
