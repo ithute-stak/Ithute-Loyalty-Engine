@@ -1,0 +1,31 @@
+name: Loyalty Engine CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: loyalty
+          POSTGRES_PASSWORD: ci_test_only
+          POSTGRES_DB: loyalty
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U loyalty -d loyalty"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      DATABASE_URL: postgresql+asyncpg://loyalty:ci_test_only@127.0.0.1:5432/loyalty
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[test]'
+      - run: python -m pytest -q
+      - run: alembic upgrade head
+      - run: alembic check
+      - run: docker build -t loyalty-ci .
