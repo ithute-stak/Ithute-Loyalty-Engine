@@ -97,7 +97,7 @@ async def accept_invitation(company_id: uuid.UUID, payload: AcceptRequest,
                 if role_id is None:
                     raise HTTPException(status_code=409, detail="invited role no longer exists")
                 existing = (await session.execute(text("""
-                    SELECT id FROM company_users
+                    SELECT id, status FROM company_users
                     WHERE tenant_id=:tenant AND external_subject=:subject
                 """), {"tenant": company_id, "subject": claims["sub"]})).scalar_one_or_none()
                 if existing is None:
@@ -107,7 +107,9 @@ async def accept_invitation(company_id: uuid.UUID, payload: AcceptRequest,
                     """), {"id": user_id, "tenant": company_id,
                            "subject": claims["sub"], "name": invitation["display_name"]})
                 else:
-                    user_id = existing
+                    if existing.status != 'active':
+                        raise HTTPException(status_code=403, detail='membership inactive')
+                    user_id = existing.id
                 await session.execute(text("""
                     INSERT INTO company_user_roles(id,tenant_id,user_id,role_id,branch_id)
                     VALUES (:id,:tenant,:user,:role,:branch)
