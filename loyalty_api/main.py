@@ -1,4 +1,6 @@
-from fastapi import Depends, FastAPI, HTTPException
+import uuid
+
+from fastapi import Depends, FastAPI, Header, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,6 +8,7 @@ from loyalty_api.config import settings
 from loyalty_api.db import SessionLocal, get_session
 from loyalty_api.security import Principal, require_principal
 from loyalty_api.tenant import tenant_transaction
+from loyalty_api.oidc import authenticate_human
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
@@ -37,3 +40,14 @@ async def merchant_branches(
         )).mappings().all()
         return {"items": [{"id": str(row["id"]), "code": row["code"], "name": row["name"]} for row in rows]}
 
+
+
+@app.get("/v1/companies/{company_id}/me", tags=["human-access"])
+async def company_membership_me(company_id: uuid.UUID, authorization: str | None = Header(default=None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="bearer token required")
+    token = authorization[7:]
+    if not token or len(token) > 8192:
+        raise HTTPException(status_code=401, detail="invalid access token")
+    principal = await authenticate_human(token, company_id)
+    return {"company_id": str(principal.tenant_id), "user_id": str(principal.user_id), "display_name": principal.display_name}
