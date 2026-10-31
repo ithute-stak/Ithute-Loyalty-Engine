@@ -59,10 +59,11 @@ async def test_two_tenant_branch_rls():
             async with engine.begin() as conn:
                 await conn.execute(text("SELECT set_config('app.tenant_id', :id, true)"), {"id": str(tenant_a)})
                 with pytest.raises(Exception):
-                    await conn.execute(text("""
-                        INSERT INTO branches(id,tenant_id,code,name)
-                        VALUES (:id,:tenant,'X','Forbidden')
-                    """), {"id": uuid.uuid4(), "tenant": tenant_b})
+                    async with conn.begin_nested():
+                        await conn.execute(text("""
+                            INSERT INTO branches(id,tenant_id,code,name)
+                            VALUES (:id,:tenant,'X','Forbidden')
+                        """), {"id": uuid.uuid4(), "tenant": tenant_b})
         finally:
             async with owner.begin() as conn:
                 for tid in (tenant_a, tenant_b):
