@@ -10,9 +10,11 @@ from loyalty_api.security import Principal, require_principal
 from loyalty_api.tenant import tenant_transaction
 from loyalty_api.oidc import authenticate_human
 from loyalty_api.company_routes import router as company_router
+from loyalty_api.invitation_routes import router as invitation_router
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 app.include_router(company_router)
+app.include_router(invitation_router)
 
 
 @app.get("/health/live", tags=["health"])
