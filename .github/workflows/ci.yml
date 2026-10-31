@@ -46,3 +46,17 @@ jobs:
           cp .env.example .env
           docker compose config --quiet
           rm .env
+
+  rust-ledger:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/ledger-rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --all-targets
