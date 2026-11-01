@@ -13,7 +13,7 @@ async def test_all_tenant_tables_force_rls_with_tenant_policy():
     tables = (
         "branches", "loyalty_programmes", "company_users",
         "company_roles", "company_user_roles", "company_invitations",
-        "company_audit_events",
+        "company_audit_events", "points_accounts", "points_entries",
     )
     engine = create_async_engine(settings.database_url)
     try:
