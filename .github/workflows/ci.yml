@@ -35,6 +35,11 @@ jobs:
         run: test -n "$TEST_RLS_DATABASE_URL"
       - run: python -m compileall -q loyalty_api tests migrations
       - run: python -m pytest -q
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Rust ledger PostgreSQL concurrency tests
+        env:
+          LEDGER_TEST_DATABASE_URL: postgres://loyalty:ci_test_only@127.0.0.1:5432/loyalty
+        run: cargo test --manifest-path services/ledger-rust/Cargo.toml --features postgres --test postgres_concurrency
       - run: alembic check
       - run: docker build -t loyalty-ci .
       - name: Validate Docker Compose configuration
