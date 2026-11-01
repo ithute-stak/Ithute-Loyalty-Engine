@@ -3,7 +3,7 @@
 #![cfg(feature = "postgres")]
 
 use ithute_loyalty_ledger::postgres::{post, reconcile, reverse, Operation, PostError};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 async fn fixture(pool: &PgPool) -> (Uuid, Uuid) {
@@ -23,15 +23,6 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid) {
     (tenant, account)
 }
 
-async fn teardown(pool: &PgPool, tenant: Uuid) {
-    let mut tx = pool.begin().await.unwrap();
-    sqlx::query("SELECT set_config('app.tenant_id',$1,true)")
-        .bind(tenant.to_string()).execute(&mut *tx).await.unwrap();
-    // Only disposable CI fixture data. Ledger's trigger blocks deleting entries:
-    // fixture cleanup is handled by dropping the disposable database after the run.
-    tx.rollback().await.unwrap();
-}
-
 #[tokio::test(flavor = "current_thread")]
 async fn concurrent_redemption_cannot_double_spend() {
     let Ok(url) = std::env::var("LEDGER_TEST_DATABASE_URL") else { return; };
@@ -46,7 +37,7 @@ async fn concurrent_redemption_cannot_double_spend() {
     let successful = [a, b].into_iter().filter(|r| r.is_ok()).count();
     assert_eq!(successful, 1);
     assert_eq!(reconcile(&pool, tenant, account).await.unwrap(), (20, 20));
-    teardown(&pool, tenant).await;
+    // Disposable CI database is discarded after tests.
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -60,5 +51,5 @@ async fn retry_refund_and_reconcile() {
     assert_eq!(reverse(&pool, tenant, account, "refund", "purchase").await.unwrap(), 0);
     assert!(matches!(reverse(&pool, tenant, account, "refund-two", "purchase").await, Err(PostError::IdempotencyConflict)));
     assert_eq!(reconcile(&pool, tenant, account).await.unwrap(), (0, 0));
-    teardown(&pool, tenant).await;
+    // Disposable CI database is discarded after tests.
 }
