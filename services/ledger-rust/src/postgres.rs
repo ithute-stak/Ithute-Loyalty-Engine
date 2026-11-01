@@ -122,6 +122,10 @@ pub async fn reverse(
     if kind == "reverse" { return Err(PostError::InvalidAmount); }
     let original_id: Uuid = original.get("id");
     let delta: i64 = original.get("delta");
+    let already = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM points_entries WHERE tenant_id=$1 AND reverses_entry_id=$2"
+    ).bind(tenant).bind(original_id).fetch_one(&mut *tx).await?;
+    if already > 0 { return Err(PostError::IdempotencyConflict); }
     let correction = delta.checked_neg().ok_or(PostError::InvalidAmount)?;
     let next = current.checked_add(correction).ok_or(PostError::InvalidAmount)?;
     if next < 0 { return Err(PostError::Insufficient); }
