@@ -36,7 +36,7 @@ def upgrade():
         sa.UniqueConstraint("tenant_id", "programme_id", "customer_ref", name="uq_points_account_member"),
         sa.CheckConstraint("balance >= 0", name="ck_points_account_nonnegative"),
     )
-    op.create_index("ix_points_accounts_tenant", "points_accounts", ["tenant_id"])
+    op.create_index("ix_points_accounts_tenant_id", "points_accounts", ["tenant_id"])
     op.create_table(
         "points_entries",
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
