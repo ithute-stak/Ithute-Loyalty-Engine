@@ -8,3 +8,12 @@ description = "Pure domain logic for tenant-scoped loyalty point commands"
 
 [lib]
 path = "src/lib.rs"
+
+[features]
+default = []
+postgres = ["dep:sqlx", "dep:tokio", "dep:uuid"]
+
+[dependencies]
+sqlx = { version = "0.7", optional = true, default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid"] }
+tokio = { version = "1", optional = true, features = ["rt", "macros"] }
+uuid = { version = "1", optional = true }
