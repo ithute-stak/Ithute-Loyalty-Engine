@@ -1,6 +1,9 @@
-//! Pure in-memory domain model for an append-only loyalty point ledger.
-//! This is NOT a database or a concurrency-safe production posting service.
-//! Persist commands in PostgreSQL with tenant/member locks and unique keys.
+#[cfg(feature = "postgres")]
+pub mod postgres;
+
+// Pure in-memory domain model for an append-only loyalty point ledger.
+// This is NOT a database or a concurrency-safe production posting service.
+// Persist commands in PostgreSQL with tenant/member locks and unique keys.
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
