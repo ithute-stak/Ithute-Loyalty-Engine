@@ -57,3 +57,39 @@ async fn retry_refund_and_reconcile() {
     assert_eq!(reconcile(&pool, tenant, account).await.unwrap(), (0, 0));
     // Disposable CI database is discarded after tests.
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn restricted_role_cannot_cross_tenant_account_boundary() {
+    let Ok(runtime_url) = std::env::var("LEDGER_TEST_DATABASE_URL") else { return; };
+    let owner_url = std::env::var("LEDGER_FIXTURE_DATABASE_URL")
+        .expect("owner fixture database URL required");
+    assert_ne!(runtime_url, owner_url);
+    let owner = PgPool::connect(&owner_url).await.unwrap();
+    let restricted = PgPool::connect(&runtime_url).await.unwrap();
+    let (tenant_a, account_a) = fixture(&owner).await;
+    let (tenant_b, account_b) = fixture(&owner).await;
+    post(&restricted, tenant_a, account_a, "a-award", Operation::Earn, 35).await.unwrap();
+    post(&restricted, tenant_b, account_b, "b-award", Operation::Earn, 60).await.unwrap();
+
+    // Supplying B's account with A's tenant context must not access B.
+    assert!(matches!(
+        post(&restricted, tenant_a, account_b, "forged", Operation::Redeem, 10).await,
+        Err(PostError::MissingAccount)
+    ));
+    assert!(matches!(
+        reconcile(&restricted, tenant_b, account_a).await,
+        Err(PostError::MissingAccount)
+    ));
+    // An unset tenant context must never reveal either company's records.
+    let mut tx = restricted.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.tenant_id','',true)")
+        .execute(&mut *tx).await.unwrap();
+    let visible: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM points_accounts WHERE id=$1 OR id=$2"
+    ).bind(account_a).bind(account_b).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(visible, 0);
+    tx.rollback().await.unwrap();
+
+    assert_eq!(reconcile(&restricted, tenant_a, account_a).await.unwrap(), (35, 35));
+    assert_eq!(reconcile(&restricted, tenant_b, account_b).await.unwrap(), (60, 60));
+}
