@@ -4,6 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "Ithute Loyalty Engine"
     environment: str = "development"
+    ledger_internal_url: str = ""
+    ledger_internal_key: str = ""
     oidc_issuer: str = ""
     oidc_audience: str = ""
     oidc_jwks_url: str = ""
