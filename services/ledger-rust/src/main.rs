@@ -3,7 +3,10 @@ fn main() { eprintln!("Build with --features service to run ledger HTTP server")
 
 #[cfg(feature = "service")]
 mod server {
-    use axum::{extract::State, http::{HeaderMap, StatusCode}, routing::post, Json, Router};
+    use axum::{body::Bytes, extract::State, http::{HeaderMap, StatusCode}, routing::post, Json, Router};
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use serde::{Deserialize, Serialize};
     use sqlx::PgPool;
     use std::{env, net::SocketAddr, sync::Arc};
@@ -26,11 +29,19 @@ mod server {
     #[derive(Serialize)]
     struct ResultBody { balance: i64 }
 
-    fn authorized(h: &HeaderMap, secret: &str) -> bool {
-        let Some(v) = h.get("x-internal-ledger-key") else { return false; };
-        let Ok(v) = v.to_str() else { return false; };
-        // This must be used only behind trusted private network controls.
-        !v.is_empty() && subtle::ConstantTimeEq::ct_eq(v.as_bytes(), secret.as_bytes()).into()
+    fn authorized(h: &HeaderMap, secret: &str, body: &[u8]) -> bool {
+        let (Some(ts), Some(sig)) = (h.get("x-ledger-timestamp"), h.get("x-ledger-signature"))
+            else { return false; };
+        let (Ok(ts), Ok(sig)) = (ts.to_str(), sig.to_str()) else { return false; };
+        let Ok(when) = ts.parse::<u64>() else { return false; };
+        let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else { return false; };
+        if now.as_secs().abs_diff(when) > 60 { return false; }
+        let Ok(received) = hex::decode(sig) else { return false; };
+        let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(secret.as_bytes()) else { return false; };
+        mac.update(ts.as_bytes());
+        mac.update(b".");
+        mac.update(body);
+        mac.verify_slice(&received).is_ok()
     }
     fn error(e: PostError) -> StatusCode {
         match e {
@@ -40,9 +51,10 @@ mod server {
             PostError::Database(_) => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
-    async fn command(State(s): State<AppState>, headers: HeaderMap, Json(c): Json<Command>)
+    async fn command(State(s): State<AppState>, headers: HeaderMap, body: Bytes)
         -> Result<Json<ResultBody>, StatusCode> {
-        if !authorized(&headers, &s.secret) { return Err(StatusCode::UNAUTHORIZED); }
+        if !authorized(&headers, &s.secret, &body) { return Err(StatusCode::UNAUTHORIZED); }
+        let c: Command = serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
         let balance = match c.operation.as_str() {
             "earn" | "redeem" => {
                 if c.original_event_id.is_some() { return Err(StatusCode::UNPROCESSABLE_ENTITY); }
@@ -63,9 +75,10 @@ mod server {
     struct BalanceQuery { tenant_id: Uuid, account_id: Uuid }
     #[derive(Serialize)]
     struct ReconcileBody { stored: i64, entries_total: i64 }
-    async fn check(State(s): State<AppState>, headers: HeaderMap, Json(q): Json<BalanceQuery>)
+    async fn check(State(s): State<AppState>, headers: HeaderMap, body: Bytes)
         -> Result<Json<ReconcileBody>, StatusCode> {
-        if !authorized(&headers, &s.secret) { return Err(StatusCode::UNAUTHORIZED); }
+        if !authorized(&headers, &s.secret, &body) { return Err(StatusCode::UNAUTHORIZED); }
+        let q: BalanceQuery = serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
         let (stored, entries_total) = reconcile(&s.pool, q.tenant_id, q.account_id).await.map_err(error)?;
         Ok(Json(ReconcileBody { stored, entries_total }))
     }
