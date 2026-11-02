@@ -12,8 +12,13 @@ path = "src/lib.rs"
 [features]
 default = []
 postgres = ["dep:sqlx", "dep:tokio", "dep:uuid"]
+service = ["postgres", "dep:axum", "dep:serde", "dep:subtle", "tokio/net", "tokio/rt-multi-thread"]
 
 [dependencies]
 sqlx = { version = "0.7", optional = true, default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid"] }
 tokio = { version = "1", optional = true, features = ["rt", "macros"] }
 uuid = { version = "1", optional = true, features = ["v4"] }
+
+axum = { version = "0.7", optional = true }
+serde = { version = "1", optional = true, features = ["derive"] }
+subtle = { version = "2", optional = true }
