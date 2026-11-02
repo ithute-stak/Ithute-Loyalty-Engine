@@ -20,6 +20,7 @@ services:
       LEDGER_BIND_ADDRESS: 0.0.0.0:8090
       LEDGER_DATABASE_URL: ${LEDGER_DATABASE_URL:?configure a restricted ledger role}
       LEDGER_INTERNAL_KEY: ${LEDGER_INTERNAL_KEY:?provide secret in .env}
+      LEDGER_ALLOWED_TENANTS: ${LEDGER_ALLOWED_TENANTS:?set explicit authorized tenant UUIDs}
     depends_on:
       postgres:
         condition: service_healthy
