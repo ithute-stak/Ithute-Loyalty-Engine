@@ -26,3 +26,9 @@ The shared key must be rotated and protected, transports must have network
 confidentiality, and public merchant writes remain disabled. The receiving
 service still needs per-tenant authorization independently enforced via
 authenticated service identity, signed scoped claims or equivalent.
+
+## Independently enforced tenant allowlist
+
+Rust now requires `LEDGER_ALLOWED_TENANTS`, a comma-separated list of UUIDs configured on the **ledger container**, and rejects commands and reconciliation requests for any unlisted company with HTTP 403. Empty/malformed config fails startup. FastAPI cannot add a company merely by setting `tenant_id` in the signed payload; enabling a new company requires an operational configuration change on Rust.
+
+This is a **deployment-time allowlist, not a complete authenticated per-tenant identity system**. An actor possessing the shared HMAC key could still issue commands for any tenant included in that allowlist. A production multi-company SaaS must replace or augment this mechanism with separately scoped caller credentials or cryptographically verifiable tenant grants, reliable revocation and audit. Do not expose merchant mutation APIs yet.
