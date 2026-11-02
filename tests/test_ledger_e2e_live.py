@@ -20,7 +20,8 @@ async def test_signed_service_two_company_isolation(monkeypatch):
     rust_url = os.getenv("LEDGER_E2E_SERVICE_URL")
     if not url or not rust_url:
         pytest.skip("live ledger CI fixture not enabled")
-    a, b, programme_a, programme_b, account_a, account_b = [uuid.uuid4() for _ in range(6)]
+    a = uuid.UUID(os.environ["LEDGER_E2E_TENANT_A"])
+    b, programme_a, programme_b, account_a, account_b = [uuid.uuid4() for _ in range(5)]
     owner = create_async_engine(url)
     try:
         async with owner.begin() as conn:
