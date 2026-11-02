@@ -5,6 +5,7 @@ services:
     environment:
       LEDGER_INTERNAL_URL: http://ledger:8090
       LEDGER_INTERNAL_KEY: ${LEDGER_INTERNAL_KEY:?provide secret in .env}
+      LEDGER_KEY_ID: ${LEDGER_KEY_ID:?provide configured key ID}
     depends_on:
       ledger:
         condition: service_started
@@ -19,8 +20,7 @@ services:
     environment:
       LEDGER_BIND_ADDRESS: 0.0.0.0:8090
       LEDGER_DATABASE_URL: ${LEDGER_DATABASE_URL:?configure a restricted ledger role}
-      LEDGER_INTERNAL_KEY: ${LEDGER_INTERNAL_KEY:?provide secret in .env}
-      LEDGER_ALLOWED_TENANTS: ${LEDGER_ALLOWED_TENANTS:?set explicit authorized tenant UUIDs}
+      LEDGER_SIGNING_KEYS_JSON: ${LEDGER_SIGNING_KEYS_JSON:?provide independently scoped credential JSON}
     depends_on:
       postgres:
         condition: service_healthy
