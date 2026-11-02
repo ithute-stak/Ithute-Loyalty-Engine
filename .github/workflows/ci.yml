@@ -20,6 +20,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://loyalty:ci_test_only@127.0.0.1:5432/loyalty
       TEST_RLS_DATABASE_URL: postgresql+asyncpg://loyalty_rls:ci_rls_only@127.0.0.1:5432/loyalty
+      TEST_LEDGER_DATABASE_URL: postgresql+asyncpg://loyalty_ledger:ci_ledger_only@127.0.0.1:5432/loyalty
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,6 +32,10 @@ jobs:
         run: |
           PGPASSWORD=ci_test_only psql -h 127.0.0.1 -U loyalty -d loyalty -v ON_ERROR_STOP=1 -c "CREATE ROLE loyalty_rls LOGIN PASSWORD 'ci_rls_only'"
           PGPASSWORD=ci_test_only psql -h 127.0.0.1 -U loyalty -d loyalty -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO loyalty_rls; GRANT SELECT, INSERT ON public.branches TO loyalty_rls; GRANT SELECT ON public.company_users, public.loyalty_programmes TO loyalty_rls"
+      - name: Provision restricted ledger runtime role
+        run: |
+          PGPASSWORD=ci_test_only psql -h 127.0.0.1 -U loyalty -d loyalty -v ON_ERROR_STOP=1 -c "CREATE ROLE loyalty_ledger LOGIN PASSWORD 'ci_ledger_only'"
+          PGPASSWORD=ci_test_only psql -h 127.0.0.1 -U loyalty -d loyalty -v ON_ERROR_STOP=1 -f infra/postgres/ledger_role.sql
       - name: Require PostgreSQL RLS test configuration
         run: test -n "$TEST_RLS_DATABASE_URL"
       - run: python -m compileall -q loyalty_api tests migrations
