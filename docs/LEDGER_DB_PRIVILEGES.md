@@ -31,3 +31,16 @@ against a migrated disposable database.
 The existing Rust concurrency tests still use the migration owner's connection
 for fixture setup; running the actual post/reverse functions with a restricted
 ledger role remains a separate integration gate.
+
+## Two-company integration regression
+
+`services/ledger-rust/tests/postgres_concurrency.rs` now also tests two
+different tenant accounts using the restricted SQL role. It verifies that a
+foreign account cannot be redeemed or reconciled under the wrong tenant context,
+a transaction without tenant context sees no test accounts, and each account's
+stored balance matches its own immutable entries.
+
+The existing GitHub Actions Rust PostgreSQL concurrency step runs this test
+through the same integration-test binary. This is a *database RLS* test rather
+than a service signing-key integration test: the latter still requires a real
+FastAPI-to-Rust HTTP test.
