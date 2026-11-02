@@ -78,7 +78,8 @@ mod server {
             .route("/internal/v1/reconcile", post(check))
             .with_state(AppState { pool, secret: Arc::new(secret) });
         // Private listener only; a reverse proxy or Docker private network is required.
-        let addr: SocketAddr = "127.0.0.1:8090".parse().unwrap();
+        let bind_address = env::var("LEDGER_BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8090".to_string());
+        let addr: SocketAddr = bind_address.parse().expect("invalid LEDGER_BIND_ADDRESS");
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
         axum::serve(listener, app).await.unwrap();
     }
