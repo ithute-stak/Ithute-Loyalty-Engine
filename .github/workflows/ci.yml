@@ -62,5 +62,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - run: cargo clippy --all-targets --features postgres -- -D warnings
-      - run: cargo test --all-targets --features postgres
+      - run: cargo clippy --all-targets --features service -- -D warnings
+      - run: cargo test --all-targets --features service
