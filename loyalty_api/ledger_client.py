@@ -24,7 +24,7 @@ class LedgerCommand(BaseModel):
 
 
 async def submit_ledger_command(tenant_id: uuid.UUID, command: LedgerCommand) -> dict:
-    if not settings.ledger_internal_url or len(settings.ledger_internal_key) < 32:
+    if not settings.ledger_internal_url or len(settings.ledger_internal_key) < 32 or not settings.ledger_key_id:
         raise HTTPException(status_code=503, detail="ledger service not configured")
     if command.operation not in {"earn", "redeem", "reverse"}:
         raise HTTPException(status_code=422, detail="invalid ledger operation")
@@ -38,7 +38,7 @@ async def submit_ledger_command(tenant_id: uuid.UUID, command: LedgerCommand) ->
     timestamp = str(int(time.time()))
     signature = hmac.new(
         settings.ledger_internal_key.encode(),
-        timestamp.encode() + b"." + body,
+        settings.ledger_key_id.encode() + b"." + timestamp.encode() + b"." + body,
         hashlib.sha256,
     ).hexdigest()
     try:
@@ -46,7 +46,8 @@ async def submit_ledger_command(tenant_id: uuid.UUID, command: LedgerCommand) ->
             response = await client.post(
                 settings.ledger_internal_url.rstrip("/") + "/internal/v1/commands",
                 content=body,
-                headers={"X-Ledger-Timestamp": timestamp,
+                headers={"X-Ledger-Key-Id": settings.ledger_key_id,
+                         "X-Ledger-Timestamp": timestamp,
                          "X-Ledger-Signature": signature,
                          "Content-Type": "application/json"},
             )
