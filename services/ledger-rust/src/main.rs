@@ -9,12 +9,23 @@ mod server {
     use std::time::{SystemTime, UNIX_EPOCH};
     use serde::{Deserialize, Serialize};
     use sqlx::PgPool;
-    use std::{collections::HashSet, env, net::SocketAddr, sync::Arc};
+    use std::{collections::{HashMap, HashSet}, env, net::SocketAddr, sync::Arc};
     use uuid::Uuid;
     use ithute_loyalty_ledger::postgres::{post as ledger_post, reverse, reconcile, Operation, PostError};
 
     #[derive(Clone)]
-    struct AppState { pool: PgPool, secret: Arc<String>, allowed_tenants: Arc<HashSet<Uuid>> }
+    struct AppState { pool: PgPool, keys: Arc<HashMap<String, SigningKey>> }
+
+    #[derive(Clone, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct SigningKey {
+        id: String,
+        secret: String,
+        tenants: HashSet<Uuid>,
+    }
+    fn is_scoped(keys: &HashMap<String, SigningKey>, key_id: &str, tenant: Uuid) -> bool {
+        keys.get(key_id).is_some_and(|key| key.tenants.contains(&tenant))
+    }
 
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -29,19 +40,23 @@ mod server {
     #[derive(Serialize)]
     struct ResultBody { balance: i64 }
 
-    fn authorized(h: &HeaderMap, secret: &str, body: &[u8]) -> bool {
+    fn authorized(h: &HeaderMap, keys: &HashMap<String, SigningKey>, body: &[u8]) -> Option<String> {
+        let kid = h.get("x-ledger-key-id")?.to_str().ok()?;
+        let key = keys.get(kid)?;
         let (Some(ts), Some(sig)) = (h.get("x-ledger-timestamp"), h.get("x-ledger-signature"))
-            else { return false; };
-        let (Ok(ts), Ok(sig)) = (ts.to_str(), sig.to_str()) else { return false; };
-        let Ok(when) = ts.parse::<u64>() else { return false; };
-        let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else { return false; };
-        if now.as_secs().abs_diff(when) > 60 { return false; }
-        let Ok(received) = hex::decode(sig) else { return false; };
-        let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(secret.as_bytes()) else { return false; };
+            else { return None; };
+        let (Ok(ts), Ok(sig)) = (ts.to_str(), sig.to_str()) else { return None; };
+        let Ok(when) = ts.parse::<u64>() else { return None; };
+        let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else { return None; };
+        if now.as_secs().abs_diff(when) > 60 { return None; }
+        let Ok(received) = hex::decode(sig) else { return None; };
+        let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(key.secret.as_bytes()) else { return None; };
+        mac.update(kid.as_bytes());
+        mac.update(b".");
         mac.update(ts.as_bytes());
         mac.update(b".");
         mac.update(body);
-        mac.verify_slice(&received).is_ok()
+        mac.verify_slice(&received).is_ok().then(|| kid.to_owned())
     }
     fn error(e: PostError) -> StatusCode {
         match e {
@@ -53,9 +68,9 @@ mod server {
     }
     async fn command(State(s): State<AppState>, headers: HeaderMap, body: Bytes)
         -> Result<Json<ResultBody>, StatusCode> {
-        if !authorized(&headers, &s.secret, &body) { return Err(StatusCode::UNAUTHORIZED); }
+        let key_id = authorized(&headers, &s.keys, &body).ok_or(StatusCode::UNAUTHORIZED)?;
         let c: Command = serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
-        if !s.allowed_tenants.contains(&c.tenant_id) { return Err(StatusCode::FORBIDDEN); }
+        if !is_scoped(&s.keys, &key_id, c.tenant_id) { return Err(StatusCode::FORBIDDEN); }
         let balance = match c.operation.as_str() {
             "earn" | "redeem" => {
                 if c.original_event_id.is_some() { return Err(StatusCode::UNPROCESSABLE_ENTITY); }
@@ -80,65 +95,68 @@ mod server {
         -> Result<Json<ReconcileBody>, StatusCode> {
         if !authorized(&headers, &s.secret, &body) { return Err(StatusCode::UNAUTHORIZED); }
         let q: BalanceQuery = serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
-        if !s.allowed_tenants.contains(&q.tenant_id) { return Err(StatusCode::FORBIDDEN); }
+        if !is_scoped(&s.keys, &key_id, q.tenant_id) { return Err(StatusCode::FORBIDDEN); }
         let (stored, entries_total) = reconcile(&s.pool, q.tenant_id, q.account_id).await.map_err(error)?;
         Ok(Json(ReconcileBody { stored, entries_total }))
     }
     #[cfg(test)]
     mod auth_tests {
-        #[test]
-        fn rust_owned_tenant_scope_excludes_unlisted_company() {
-            let company_a = uuid::Uuid::new_v4();
-            let company_b = uuid::Uuid::new_v4();
-            let permitted = std::collections::HashSet::from([company_a]);
-            assert!(permitted.contains(&company_a));
-            assert!(!permitted.contains(&company_b));
-        }
-
         use super::*;
         use axum::http::HeaderValue;
-
-        fn signed(body: &[u8], timestamp: u64) -> HeaderMap {
-            let mut headers = HeaderMap::new();
-            let ts = timestamp.to_string();
-            let mut mac = Hmac::<Sha256>::new_from_slice(b"01234567890123456789012345678901").unwrap();
+        fn keys(tenant: Uuid) -> HashMap<String, SigningKey> {
+            HashMap::from([("merchant-a-v1".to_owned(), SigningKey {
+                id: "merchant-a-v1".into(), secret: "x".repeat(40),
+                tenants: HashSet::from([tenant]),
+            })])
+        }
+        fn signed(body: &[u8], ts: u64) -> HeaderMap {
+            let mut h = HeaderMap::new();
+            let ts = ts.to_string();
+            let mut mac = Hmac::<Sha256>::new_from_slice("x".repeat(40).as_bytes()).unwrap();
+            mac.update(b"merchant-a-v1.");
             mac.update(ts.as_bytes());
             mac.update(b".");
             mac.update(body);
-            headers.insert("x-ledger-timestamp", HeaderValue::from_str(&ts).unwrap());
-            headers.insert("x-ledger-signature", HeaderValue::from_str(&hex::encode(mac.finalize().into_bytes())).unwrap());
-            headers
+            h.insert("x-ledger-key-id", HeaderValue::from_static("merchant-a-v1"));
+            h.insert("x-ledger-timestamp", HeaderValue::from_str(&ts).unwrap());
+            h.insert("x-ledger-signature", HeaderValue::from_str(&hex::encode(mac.finalize().into_bytes())).unwrap());
+            h
         }
-
         #[test]
-        fn signed_request_accepts_valid_and_rejects_tampering() {
+        fn signed_request_checks_signature_key_scope_and_expiry() {
+            let a = Uuid::new_v4();
+            let b = Uuid::new_v4();
+            let keys = keys(a);
+            assert!(is_scoped(&keys, "merchant-a-v1", a));
+            assert!(!is_scoped(&keys, "merchant-a-v1", b));
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-            let headers = signed(b"{\"tenant_id\":\"a\"}", now);
-            let secret = "01234567890123456789012345678901";
-            assert!(authorized(&headers, secret, b"{\"tenant_id\":\"a\"}"));
-            assert!(!authorized(&headers, secret, b"{\"tenant_id\":\"b\"}"));
-            assert!(!authorized(&headers, "different-secret-different-secret", b"{\"tenant_id\":\"a\"}"));
-            assert!(!authorized(&HeaderMap::new(), secret, b"{\"tenant_id\":\"a\"}"));
-            let expired = signed(b"{}", now.saturating_sub(120));
-            assert!(!authorized(&expired, secret, b"{}"));
+            let h = signed(b"{}", now);
+            assert_eq!(authorized(&h, &keys, b"{}").as_deref(), Some("merchant-a-v1"));
+            assert!(authorized(&h, &keys, b"{ }").is_none());
+            let mut wrong = h.clone();
+            wrong.insert("x-ledger-key-id", HeaderValue::from_static("other-key"));
+            assert!(authorized(&wrong, &keys, b"{}").is_none());
+            assert!(authorized(&signed(b"{}", now.saturating_sub(120)), &keys, b"{}").is_none());
         }
     }
 
     pub async fn run() {
         let url = env::var("LEDGER_DATABASE_URL").expect("LEDGER_DATABASE_URL required");
-        let secret = env::var("LEDGER_INTERNAL_KEY").expect("LEDGER_INTERNAL_KEY required");
-        assert!(secret.len() >= 32, "internal key must contain at least 32 characters");
-        // Operational allowlist is configured at the Rust service, not forwarded by API.
-        // Empty/malformed lists fail startup; never default to permitting all tenants.
-        let allowed = env::var("LEDGER_ALLOWED_TENANTS").expect("LEDGER_ALLOWED_TENANTS required");
-        let allowed_tenants: HashSet<Uuid> = allowed.split(',')
-            .map(|s| s.trim().parse::<Uuid>().expect("invalid authorized tenant UUID"))
-            .collect();
-        assert!(!allowed_tenants.is_empty(), "at least one authorized tenant required");
+        // Each signing key has an independent tenant allowlist. Unknown/empty config fails closed.
+        let raw = env::var("LEDGER_SIGNING_KEYS_JSON").expect("LEDGER_SIGNING_KEYS_JSON required");
+        let configured: Vec<SigningKey> = serde_json::from_str(&raw).expect("invalid signing keys JSON");
+        assert!(!configured.is_empty(), "at least one signing key required");
+        let mut keys = HashMap::new();
+        for key in configured {
+            assert!(!key.id.is_empty() && key.id.len() <= 128 && key.secret.len() >= 32
+                && !key.tenants.is_empty(), "invalid signing key configuration");
+            let id = key.id.clone();
+            assert!(keys.insert(id, key).is_none(), "duplicate signing key ID");
+        }
         let pool = PgPool::connect(&url).await.expect("ledger DB unavailable");
         let app = Router::new().route("/internal/v1/commands", post(command))
             .route("/internal/v1/reconcile", post(check))
-            .with_state(AppState { pool, secret: Arc::new(secret), allowed_tenants: Arc::new(allowed_tenants) });
+            .with_state(AppState { pool, keys: Arc::new(keys) });
         // Private listener only; a reverse proxy or Docker private network is required.
         let bind_address = env::var("LEDGER_BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8090".to_string());
         let addr: SocketAddr = bind_address.parse().expect("invalid LEDGER_BIND_ADDRESS");
