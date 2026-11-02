@@ -10,3 +10,19 @@ Current API->Rust transport is internal HTTP plus a shared service secret. This 
 - Run two-tenant concurrency/idempotency tests against a real PostgreSQL instance.
 - Introduce replay-bound signed messages or mutual TLS with authenticated service identity, secure key rotation and rate limiting before accepting external transaction requests.
 - Verify CI, backup/restore and service health checks before production deployment.
+
+## Signed internal commands (2026-11-02)
+
+The FastAPI ledger client now signs canonical JSON bytes with HMAC-SHA256 over
+`<unix_timestamp>.<raw_body>`. Rust rejects requests lacking a valid MAC,
+with an altered request body, or with timestamps outside a 60-second window.
+The ledger internal secret is not transmitted in the request header anymore.
+
+**Outstanding limitations:** HMAC identifies the shared client secret, not an
+independently authorized merchant. A captured signed message can be replayed
+within the allowed window. Ledger posting idempotency prevents duplicate
+*effects* for the same event ID, but there is no nonce replay database yet.
+The shared key must be rotated and protected, transports must have network
+confidentiality, and public merchant writes remain disabled. The receiving
+service still needs per-tenant authorization independently enforced via
+authenticated service identity, signed scoped claims or equivalent.
