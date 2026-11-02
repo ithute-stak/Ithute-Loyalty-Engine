@@ -97,6 +97,8 @@ class CompanyUserRole(Base):
         ForeignKeyConstraint(["tenant_id", "role_id"], ["company_roles.tenant_id", "company_roles.id"], ondelete="CASCADE"),
         ForeignKeyConstraint(["tenant_id", "branch_id"], ["branches.tenant_id", "branches.id"], ondelete="CASCADE"),
         UniqueConstraint("tenant_id", "user_id", "role_id", "branch_id", name="uq_membership_scope"),
+        Index("uq_membership_global", "tenant_id", "user_id", "role_id", unique=True,
+              postgresql_where=text("branch_id IS NULL")),
     )
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
