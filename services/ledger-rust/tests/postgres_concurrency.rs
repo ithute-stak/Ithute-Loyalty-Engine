@@ -1,4 +1,4 @@
-//! Database-backed concurrency checks. Set LEDGER_TEST_DATABASE_URL to a
+//! Database-backed concurrency checks. Set LEDGER_TEST_DATABASE_URL (restricted role) and LEDGER_FIXTURE_DATABASE_URL (owner) to a
 //! disposable migrated PostgreSQL database. Never run against production.
 #![cfg(feature = "postgres")]
 
@@ -26,8 +26,12 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid) {
 #[tokio::test(flavor = "current_thread")]
 async fn concurrent_redemption_cannot_double_spend() {
     let Ok(url) = std::env::var("LEDGER_TEST_DATABASE_URL") else { return; };
+    let owner_url = std::env::var("LEDGER_FIXTURE_DATABASE_URL")
+        .expect("owner fixture URL required for ledger integration tests");
+    assert_ne!(url, owner_url, "runtime and fixture credentials must differ");
+    let owner_pool = PgPool::connect(&owner_url).await.unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
-    let (tenant, account) = fixture(&pool).await;
+    let (tenant, account) = fixture(&owner_pool).await;
     post(&pool, tenant, account, "sale-1", Operation::Earn, 100).await.unwrap();
 
     let (a, b) = tokio::join!(
