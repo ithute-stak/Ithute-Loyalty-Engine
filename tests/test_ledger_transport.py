@@ -1,5 +1,7 @@
 """Transport contract tests; never require a running Rust service."""
 import uuid
+import hashlib
+import hmac
 import httpx
 import pytest
 from fastapi import HTTPException
@@ -14,7 +16,10 @@ async def test_ledger_tenant_is_sourced_from_authenticated_context(monkeypatch):
     sent = {}
     async def handler(request: httpx.Request):
         sent.update(__import__("json").loads(request.content))
-        assert request.headers["X-Internal-Ledger-Key"] == "x" * 40
+        timestamp = request.headers["X-Ledger-Timestamp"]
+        supplied = request.headers["X-Ledger-Signature"]
+        expected = hmac.new(b"x" * 40, timestamp.encode() + b"." + request.content, hashlib.sha256).hexdigest()
+        assert hmac.compare_digest(supplied, expected)
         return httpx.Response(200, json={"balance": 23})
     original = httpx.AsyncClient
     def client_factory(*args, **kwargs):
