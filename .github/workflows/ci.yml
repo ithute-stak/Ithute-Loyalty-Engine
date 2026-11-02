@@ -43,7 +43,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Rust ledger PostgreSQL concurrency tests
         env:
-          LEDGER_TEST_DATABASE_URL: postgres://loyalty:ci_test_only@127.0.0.1:5432/loyalty
+          LEDGER_TEST_DATABASE_URL: postgres://loyalty_ledger:ci_ledger_only@127.0.0.1:5432/loyalty
+          LEDGER_FIXTURE_DATABASE_URL: postgres://loyalty:ci_test_only@127.0.0.1:5432/loyalty
         run: cargo test --manifest-path services/ledger-rust/Cargo.toml --features postgres --test postgres_concurrency
       - run: alembic check
       - run: docker build -t loyalty-ci .
