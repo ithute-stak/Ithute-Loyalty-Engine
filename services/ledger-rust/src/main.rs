@@ -93,7 +93,7 @@ mod server {
     struct ReconcileBody { stored: i64, entries_total: i64 }
     async fn check(State(s): State<AppState>, headers: HeaderMap, body: Bytes)
         -> Result<Json<ReconcileBody>, StatusCode> {
-        if !authorized(&headers, &s.secret, &body) { return Err(StatusCode::UNAUTHORIZED); }
+        let key_id = authorized(&headers, &s.keys, &body).ok_or(StatusCode::UNAUTHORIZED)?;
         let q: BalanceQuery = serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
         if !is_scoped(&s.keys, &key_id, q.tenant_id) { return Err(StatusCode::FORBIDDEN); }
         let (stored, entries_total) = reconcile(&s.pool, q.tenant_id, q.account_id).await.map_err(error)?;
@@ -121,6 +121,29 @@ mod server {
             h.insert("x-ledger-timestamp", HeaderValue::from_str(&ts).unwrap());
             h.insert("x-ledger-signature", HeaderValue::from_str(&hex::encode(mac.finalize().into_bytes())).unwrap());
             h
+        }
+        #[tokio::test]
+        async fn http_command_rejects_wrong_tenant_before_database_access() {
+            let tenant_a = Uuid::new_v4();
+            let tenant_b = Uuid::new_v4();
+            let pool = sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://unused:unused@localhost:5432/unused").unwrap();
+            let state = AppState { pool, keys: Arc::new(keys(tenant_a)) };
+            let body = format!(
+                "{{\"tenant_id\":\"{}\",\"account_id\":\"{}\",\"event_id\":\"no-access\",\"operation\":\"earn\",\"points\":5}}",
+                tenant_b, Uuid::new_v4()
+            );
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let response = command(State(state.clone()), signed(body.as_bytes(), now),
+                Bytes::from(body)).await;
+            assert!(matches!(response, Err(StatusCode::FORBIDDEN)));
+
+            let body = format!(
+                "{{\"tenant_id\":\"{}\",\"account_id\":\"{}\",\"event_id\":\"no-access\",\"operation\":\"earn\",\"points\":5}}",
+                tenant_b, Uuid::new_v4()
+            );
+            let response = command(State(state), HeaderMap::new(), Bytes::from(body)).await;
+            assert!(matches!(response, Err(StatusCode::UNAUTHORIZED)));
         }
         #[test]
         fn signed_request_checks_signature_key_scope_and_expiry() {
