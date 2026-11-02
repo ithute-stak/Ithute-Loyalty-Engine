@@ -32,3 +32,14 @@ authenticated service identity, signed scoped claims or equivalent.
 Rust now requires `LEDGER_ALLOWED_TENANTS`, a comma-separated list of UUIDs configured on the **ledger container**, and rejects commands and reconciliation requests for any unlisted company with HTTP 403. Empty/malformed config fails startup. FastAPI cannot add a company merely by setting `tenant_id` in the signed payload; enabling a new company requires an operational configuration change on Rust.
 
 This is a **deployment-time allowlist, not a complete authenticated per-tenant identity system**. An actor possessing the shared HMAC key could still issue commands for any tenant included in that allowlist. A production multi-company SaaS must replace or augment this mechanism with separately scoped caller credentials or cryptographically verifiable tenant grants, reliable revocation and audit. Do not expose merchant mutation APIs yet.
+
+## Scoped HTTP handler regression
+
+The Rust internal command handler has a regression test for a *validly signed*
+request from a key assigned to tenant A where the JSON body names tenant B.
+The handler must return 403 before any PostgreSQL statement. A request without
+signature headers must return 401. The reconciliation route has been fixed to
+use the same key-ID authorization path as the posting route.
+
+This is a **handler-level test**, not yet a complete FastAPI-to-running-Rust-to-
+PostgreSQL end-to-end test. The latter remains a release gate.
