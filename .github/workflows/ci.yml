@@ -46,6 +46,33 @@ jobs:
           LEDGER_TEST_DATABASE_URL: postgres://loyalty_ledger:ci_ledger_only@127.0.0.1:5432/loyalty
           LEDGER_FIXTURE_DATABASE_URL: postgres://loyalty:ci_test_only@127.0.0.1:5432/loyalty
         run: cargo test --manifest-path services/ledger-rust/Cargo.toml --features postgres --test postgres_concurrency
+      - name: Live signed client to Rust ledger and PostgreSQL
+        env:
+          LEDGER_DATABASE_URL: postgres://loyalty_ledger:ci_ledger_only@127.0.0.1:5432/loyalty
+          LEDGER_BIND_ADDRESS: 127.0.0.1:8090
+          LEDGER_SIGNING_KEYS_JSON: '[{"id":"ci-a-v1","secret":"ci-test-key-with-at-least-32-characters-1234","tenants":["00000000-0000-4000-8000-000000000001"]}]'
+          LEDGER_E2E_OWNER_DATABASE_URL: postgresql+asyncpg://loyalty:ci_test_only@127.0.0.1:5432/loyalty
+          LEDGER_E2E_SERVICE_URL: http://127.0.0.1:8090
+          LEDGER_E2E_KEY_ID: ci-a-v1
+          LEDGER_E2E_KEY_SECRET: ci-test-key-with-at-least-32-characters-1234
+          LEDGER_E2E_TENANT_A: 00000000-0000-4000-8000-000000000001
+        run: |
+          cargo build --manifest-path services/ledger-rust/Cargo.toml --features service
+          services/ledger-rust/target/debug/ithute-loyalty-ledger > /tmp/ledger-e2e.log 2>&1 &
+          LEDGER_PID=$!
+          trap 'kill "$LEDGER_PID" 2>/dev/null || true; cat /tmp/ledger-e2e.log' EXIT
+          python - <<'PY'
+          import socket, time
+          for _ in range(100):
+              try:
+                  socket.create_connection(("127.0.0.1", 8090), timeout=0.2).close()
+                  break
+              except OSError:
+                  time.sleep(0.1)
+          else:
+              raise SystemExit("Rust ledger failed to bind")
+          PY
+          python -m pytest -q tests/test_ledger_e2e_live.py
       - run: alembic check
       - run: docker build -t loyalty-ci .
       - name: Build private Rust ledger image
