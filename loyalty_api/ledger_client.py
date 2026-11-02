@@ -4,6 +4,10 @@ Only caller-authenticated tenant IDs may be forwarded; never take tenant_id from
 the external JSON payload. Keep the internal key exclusively on the server.
 """
 import uuid
+import json
+import time
+import hmac
+import hashlib
 import httpx
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
@@ -30,12 +34,21 @@ async def submit_ledger_command(tenant_id: uuid.UUID, command: LedgerCommand) ->
         raise HTTPException(status_code=422, detail="invalid points fields")
     payload = command.model_dump(mode="json")
     payload["tenant_id"] = str(tenant_id)
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    timestamp = str(int(time.time()))
+    signature = hmac.new(
+        settings.ledger_internal_key.encode(),
+        timestamp.encode() + b"." + body,
+        hashlib.sha256,
+    ).hexdigest()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
                 settings.ledger_internal_url.rstrip("/") + "/internal/v1/commands",
-                json=payload,
-                headers={"X-Internal-Ledger-Key": settings.ledger_internal_key},
+                content=body,
+                headers={"X-Ledger-Timestamp": timestamp,
+                         "X-Ledger-Signature": signature,
+                         "Content-Type": "application/json"},
             )
         if response.status_code in (400, 404, 409, 422):
             raise HTTPException(status_code=response.status_code, detail="ledger command rejected")
