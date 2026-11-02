@@ -1,0 +1,38 @@
+# Optional private ledger overlay. Do not expose outside private Docker networking.
+# Requires a dedicated DB runtime role and migrations before enabling.
+services:
+  api:
+    environment:
+      LEDGER_INTERNAL_URL: http://ledger:8090
+      LEDGER_INTERNAL_KEY: ${LEDGER_INTERNAL_KEY:?provide secret in .env}
+    depends_on:
+      ledger:
+        condition: service_started
+    networks:
+      - default
+      - ledger_private
+  ledger:
+    build:
+      context: .
+      dockerfile: services/ledger-rust/Dockerfile
+    restart: unless-stopped
+    environment:
+      LEDGER_BIND_ADDRESS: 0.0.0.0:8090
+      LEDGER_DATABASE_URL: ${LEDGER_DATABASE_URL:?configure a restricted ledger role}
+      LEDGER_INTERNAL_KEY: ${LEDGER_INTERNAL_KEY:?provide secret in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+      - ledger_private
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+  # No host ports: only API can call ledger on this internal network.
+networks:
+  ledger_private:
+    internal: true
