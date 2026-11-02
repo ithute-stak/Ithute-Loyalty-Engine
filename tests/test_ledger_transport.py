@@ -18,7 +18,8 @@ async def test_ledger_tenant_is_sourced_from_authenticated_context(monkeypatch):
         sent.update(__import__("json").loads(request.content))
         timestamp = request.headers["X-Ledger-Timestamp"]
         supplied = request.headers["X-Ledger-Signature"]
-        expected = hmac.new(b"x" * 40, timestamp.encode() + b"." + request.content, hashlib.sha256).hexdigest()
+        expected = hmac.new(b"x" * 40, b"merchant-a-v1." + timestamp.encode() + b"." + request.content, hashlib.sha256).hexdigest()
+        assert request.headers["X-Ledger-Key-Id"] == "merchant-a-v1"
         assert hmac.compare_digest(supplied, expected)
         return httpx.Response(200, json={"balance": 23})
     original = httpx.AsyncClient
@@ -27,6 +28,7 @@ async def test_ledger_tenant_is_sourced_from_authenticated_context(monkeypatch):
     monkeypatch.setattr(ledger_client.httpx, "AsyncClient", client_factory)
     monkeypatch.setattr(settings, "ledger_internal_url", "http://ledger:8090")
     monkeypatch.setattr(settings, "ledger_internal_key", "x" * 40)
+    monkeypatch.setattr(settings, "ledger_key_id", "merchant-a-v1"
     command = ledger_client.LedgerCommand(
         account_id=account, event_id="confirmed-sale-1", operation="earn", points=23
     )
