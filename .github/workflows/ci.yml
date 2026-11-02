@@ -54,7 +54,8 @@ jobs:
           docker compose config --quiet
           LEDGER_INTERNAL_KEY=ci-test-only-not-for-production-1234567890 \
           LEDGER_DATABASE_URL=postgres://loyalty:ci_test_only@postgres:5432/loyalty \
-          LEDGER_ALLOWED_TENANTS=00000000-0000-4000-8000-000000000001 \
+          LEDGER_KEY_ID=ci-v1 \
+          LEDGER_SIGNING_KEYS_JSON='[{"id":"ci-v1","secret":"ci-test-key-with-at-least-32-characters-1234","tenants":["00000000-0000-4000-8000-000000000001"]}]' \
           docker compose -f compose.yaml -f compose.ledger.yml config --quiet
           rm .env
 
