@@ -42,6 +42,8 @@ jobs:
         run: cargo test --manifest-path services/ledger-rust/Cargo.toml --features postgres --test postgres_concurrency
       - run: alembic check
       - run: docker build -t loyalty-ci .
+      - name: Build private Rust ledger image
+        run: docker build -f services/ledger-rust/Dockerfile -t loyalty-ledger-ci .
       - name: Validate Docker Compose configuration
         env:
           POSTGRES_DB: loyalty
