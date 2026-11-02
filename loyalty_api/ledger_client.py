@@ -51,7 +51,7 @@ async def submit_ledger_command(tenant_id: uuid.UUID, command: LedgerCommand) ->
                          "X-Ledger-Signature": signature,
                          "Content-Type": "application/json"},
             )
-        if response.status_code in (400, 404, 409, 422):
+        if response.status_code in (400, 401, 403, 404, 409, 422):
             raise HTTPException(status_code=response.status_code, detail="ledger command rejected")
         response.raise_for_status()
         return response.json()
