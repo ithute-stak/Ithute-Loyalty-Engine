@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     ledger_internal_url: str = ""
     ledger_internal_key: str = ""
+    ledger_key_id: str = ""
     oidc_issuer: str = ""
     oidc_audience: str = ""
     oidc_jwks_url: str = ""
