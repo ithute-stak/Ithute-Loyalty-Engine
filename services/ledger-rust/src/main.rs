@@ -82,6 +82,37 @@ mod server {
         let (stored, entries_total) = reconcile(&s.pool, q.tenant_id, q.account_id).await.map_err(error)?;
         Ok(Json(ReconcileBody { stored, entries_total }))
     }
+    #[cfg(test)]
+    mod auth_tests {
+        use super::*;
+        use axum::http::HeaderValue;
+
+        fn signed(body: &[u8], timestamp: u64) -> HeaderMap {
+            let mut headers = HeaderMap::new();
+            let ts = timestamp.to_string();
+            let mut mac = Hmac::<Sha256>::new_from_slice(b"01234567890123456789012345678901").unwrap();
+            mac.update(ts.as_bytes());
+            mac.update(b".");
+            mac.update(body);
+            headers.insert("x-ledger-timestamp", HeaderValue::from_str(&ts).unwrap());
+            headers.insert("x-ledger-signature", HeaderValue::from_str(&hex::encode(mac.finalize().into_bytes())).unwrap());
+            headers
+        }
+
+        #[test]
+        fn signed_request_accepts_valid_and_rejects_tampering() {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let headers = signed(b"{\"tenant_id\":\"a\"}", now);
+            let secret = "01234567890123456789012345678901";
+            assert!(authorized(&headers, secret, b"{\"tenant_id\":\"a\"}"));
+            assert!(!authorized(&headers, secret, b"{\"tenant_id\":\"b\"}"));
+            assert!(!authorized(&headers, "different-secret-different-secret", b"{\"tenant_id\":\"a\"}"));
+            assert!(!authorized(&HeaderMap::new(), secret, b"{\"tenant_id\":\"a\"}"));
+            let expired = signed(b"{}", now.saturating_sub(120));
+            assert!(!authorized(&expired, secret, b"{}"));
+        }
+    }
+
     pub async fn run() {
         let url = env::var("LEDGER_DATABASE_URL").expect("LEDGER_DATABASE_URL required");
         let secret = env::var("LEDGER_INTERNAL_KEY").expect("LEDGER_INTERNAL_KEY required");
