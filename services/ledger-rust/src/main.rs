@@ -40,7 +40,7 @@ mod server {
     #[derive(Serialize)]
     struct ResultBody { balance: i64 }
 
-    fn authorized(h: &HeaderMap, keys: &HashMap<String, SigningKey>, body: &[u8]) -> Option<String> {
+    fn authorized(h: &HeaderMap, keys: &HashMap<String, SigningKey>, path: &str, body: &[u8]) -> Option<String> {
         let kid = h.get("x-ledger-key-id")?.to_str().ok()?;
         let key = keys.get(kid)?;
         let (Some(ts), Some(sig)) = (h.get("x-ledger-timestamp"), h.get("x-ledger-signature"))
@@ -51,6 +51,10 @@ mod server {
         if now.as_secs().abs_diff(when) > 60 { return None; }
         let Ok(received) = hex::decode(sig) else { return None; };
         let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(key.secret.as_bytes()) else { return None; };
+        // Bind the signature to the exact HTTP method and endpoint.
+        mac.update(b"POST\n");
+        mac.update(path.as_bytes());
+        mac.update(b"\n");
         mac.update(kid.as_bytes());
         mac.update(b".");
         mac.update(ts.as_bytes());
@@ -68,7 +72,7 @@ mod server {
     }
     async fn command(State(s): State<AppState>, headers: HeaderMap, body: Bytes)
         -> Result<Json<ResultBody>, StatusCode> {
-        let key_id = authorized(&headers, &s.keys, &body).ok_or(StatusCode::UNAUTHORIZED)?;
+        let key_id = authorized(&headers, &s.keys, "/internal/v1/commands", &body).ok_or(StatusCode::UNAUTHORIZED)?;
         let c: Command = serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
         if !is_scoped(&s.keys, &key_id, c.tenant_id) { return Err(StatusCode::FORBIDDEN); }
         let balance = match c.operation.as_str() {
@@ -94,7 +98,7 @@ mod server {
     struct ReconcileBody { stored: i64, entries_total: i64 }
     async fn check(State(s): State<AppState>, headers: HeaderMap, body: Bytes)
         -> Result<Json<ReconcileBody>, StatusCode> {
-        let key_id = authorized(&headers, &s.keys, &body).ok_or(StatusCode::UNAUTHORIZED)?;
+        let key_id = authorized(&headers, &s.keys, "/internal/v1/reconcile", &body).ok_or(StatusCode::UNAUTHORIZED)?;
         let q: BalanceQuery = serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
         if !is_scoped(&s.keys, &key_id, q.tenant_id) { return Err(StatusCode::FORBIDDEN); }
         let (stored, entries_total) = reconcile(&s.pool, q.tenant_id, q.account_id).await.map_err(error)?;
@@ -118,11 +122,13 @@ mod server {
                 tenants: HashSet::from([tenant]),
             })])
         }
-        fn signed(body: &[u8], ts: u64) -> HeaderMap {
+        fn signed(path: &str, body: &[u8], ts: u64) -> HeaderMap {
             let mut h = HeaderMap::new();
             let ts = ts.to_string();
             let mut mac = Hmac::<Sha256>::new_from_slice("x".repeat(40).as_bytes()).unwrap();
-            mac.update(b"merchant-a-v1.");
+            mac.update(b"POST\n");
+            mac.update(path.as_bytes());
+            mac.update(b"\nmerchant-a-v1.");
             mac.update(ts.as_bytes());
             mac.update(b".");
             mac.update(body);
@@ -143,7 +149,7 @@ mod server {
                 tenant_b, Uuid::new_v4()
             );
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-            let response = command(State(state.clone()), signed(body.as_bytes(), now),
+            let response = command(State(state.clone()), signed("/internal/v1/commands", body.as_bytes(), now),
                 Bytes::from(body)).await;
             assert!(matches!(response, Err(StatusCode::FORBIDDEN)));
 
@@ -167,10 +173,10 @@ mod server {
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
             let response = check(
                 State(state),
-                signed(command_body.as_bytes(), now),
+                signed("/internal/v1/commands", command_body.as_bytes(), now),
                 Bytes::from(command_body),
             ).await;
-            assert!(matches!(response, Err(StatusCode::BAD_REQUEST)));
+            assert!(matches!(response, Err(StatusCode::UNAUTHORIZED)));
         }
 
         #[test]
@@ -181,13 +187,14 @@ mod server {
             assert!(is_scoped(&keys, "merchant-a-v1", a));
             assert!(!is_scoped(&keys, "merchant-a-v1", b));
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-            let h = signed(b"{}", now);
-            assert_eq!(authorized(&h, &keys, b"{}").as_deref(), Some("merchant-a-v1"));
-            assert!(authorized(&h, &keys, b"{ }").is_none());
+            let h = signed("/internal/v1/commands", b"{}", now);
+            assert_eq!(authorized(&h, &keys, "/internal/v1/commands", b"{}").as_deref(), Some("merchant-a-v1"));
+            assert!(authorized(&h, &keys, "/internal/v1/commands", b"{ }").is_none());
+            assert!(authorized(&h, &keys, "/internal/v1/reconcile", b"{}").is_none());
             let mut wrong = h.clone();
             wrong.insert("x-ledger-key-id", HeaderValue::from_static("other-key"));
-            assert!(authorized(&wrong, &keys, b"{}").is_none());
-            assert!(authorized(&signed(b"{}", now.saturating_sub(120)), &keys, b"{}").is_none());
+            assert!(authorized(&wrong, &keys, "/internal/v1/commands", b"{}").is_none());
+            assert!(authorized(&signed("/internal/v1/commands", b"{}", now.saturating_sub(120)), &keys, "/internal/v1/commands", b"{}").is_none());
         }
     }
 
