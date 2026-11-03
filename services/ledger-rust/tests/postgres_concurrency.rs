@@ -115,3 +115,50 @@ async fn restricted_role_cannot_cross_tenant_account_boundary() {
     assert_eq!(reconcile(&restricted, tenant_a, account_a).await.unwrap(), (35, 35));
     assert_eq!(reconcile(&restricted, tenant_b, account_b).await.unwrap(), (60, 60));
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn retry_after_other_postings_returns_original_result_without_mutation() {
+    let Ok(runtime_url) = std::env::var("LEDGER_TEST_DATABASE_URL") else {
+        assert_ne!(
+            std::env::var("LEDGER_REQUIRE_POSTGRES_TESTS").as_deref(), Ok("1"),
+            "mandatory PostgreSQL idempotency test requires restricted role URL"
+        );
+        return;
+    };
+    let owner_url = std::env::var("LEDGER_FIXTURE_DATABASE_URL")
+        .expect("fixture owner database URL required");
+    assert_ne!(runtime_url, owner_url);
+    let owner = PgPool::connect(&owner_url).await.unwrap();
+    let ledger = PgPool::connect(&runtime_url).await.unwrap();
+    let (tenant, account) = fixture(&owner).await;
+
+    assert_eq!(post(&ledger, tenant, account, "sale-1", Operation::Earn, 50).await.unwrap(), 50);
+    assert_eq!(post(&ledger, tenant, account, "reward-1", Operation::Redeem, 20).await.unwrap(), 30);
+
+    // The original response is stable, even after the account's balance changes.
+    assert_eq!(post(&ledger, tenant, account, "sale-1", Operation::Earn, 50).await.unwrap(), 50);
+    assert!(matches!(
+        post(&ledger, tenant, account, "sale-1", Operation::Earn, 51).await,
+        Err(PostError::IdempotencyConflict)
+    ));
+    assert!(matches!(
+        post(&ledger, tenant, account, "sale-1", Operation::Redeem, 50).await,
+        Err(PostError::IdempotencyConflict)
+    ));
+    assert_eq!(reconcile(&ledger, tenant, account).await.unwrap(), (30, 30));
+
+    assert_eq!(reverse(&ledger, tenant, account, "undo-reward", "reward-1").await.unwrap(), 50);
+    assert_eq!(post(&ledger, tenant, account, "sale-2", Operation::Earn, 10).await.unwrap(), 60);
+    assert_eq!(reverse(&ledger, tenant, account, "undo-reward", "reward-1").await.unwrap(), 50);
+    assert_eq!(reconcile(&ledger, tenant, account).await.unwrap(), (60, 60));
+
+    // One earn, one redeem, one reversal, one later earn: four immutable rows.
+    let mut tx = ledger.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.tenant_id',$1,true)")
+        .bind(tenant.to_string()).execute(&mut *tx).await.unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM points_entries WHERE tenant_id=$1 AND account_id=$2"
+    ).bind(tenant).bind(account).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(count, 4);
+    tx.rollback().await.unwrap();
+}
