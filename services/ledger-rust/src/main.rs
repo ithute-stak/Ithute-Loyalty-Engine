@@ -3,7 +3,7 @@ fn main() { eprintln!("Build with --features service to run ledger HTTP server")
 
 #[cfg(feature = "service")]
 mod server {
-    use axum::{body::Bytes, extract::State, http::{HeaderMap, StatusCode}, routing::post, Json, Router};
+    use axum::{body::Bytes, extract::State, http::{HeaderMap, StatusCode}, routing::{get, post}, Json, Router};
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -99,6 +99,14 @@ mod server {
         let (stored, entries_total) = reconcile(&s.pool, q.tenant_id, q.account_id).await.map_err(error)?;
         Ok(Json(ReconcileBody { stored, entries_total }))
     }
+    // Internal-only readiness probe: expose no tenant details or DB credentials.
+    async fn ready(State(s): State<AppState>) -> StatusCode {
+        match sqlx::query("SELECT 1").execute(&s.pool).await {
+            Ok(_) => StatusCode::NO_CONTENT,
+            Err(_) => StatusCode::SERVICE_UNAVAILABLE,
+        }
+    }
+
     #[cfg(test)]
     mod auth_tests {
         use super::*;
@@ -177,7 +185,8 @@ mod server {
             assert!(keys.insert(id, key).is_none(), "duplicate signing key ID");
         }
         let pool = PgPool::connect(&url).await.expect("ledger DB unavailable");
-        let app = Router::new().route("/internal/v1/commands", post(command))
+        let app = Router::new().route("/internal/health", get(ready))
+            .route("/internal/v1/commands", post(command))
             .route("/internal/v1/reconcile", post(check))
             .with_state(AppState { pool, keys: Arc::new(keys) });
         // Private listener only; a reverse proxy or Docker private network is required.
