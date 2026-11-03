@@ -25,15 +25,22 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - default
       - ledger_private
+      - ledger_db
     read_only: true
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     pids_limit: 128
-  # No host ports: only API can call ledger on this internal network.
+  postgres:
+    networks:
+      - default
+      - ledger_db
+  # API and ledger share the HTTP-only network; ledger and database share
+  # a separate SQL-only network. No published ledger ports.
 networks:
   ledger_private:
+    internal: true
+  ledger_db:
     internal: true
