@@ -4,6 +4,12 @@ Run only on a disposable migrated CI database with a running Rust service.
 """
 import os
 import uuid
+import hashlib
+import hmac
+import json
+import time
+
+import httpx
 
 import pytest
 from sqlalchemy import text
@@ -58,6 +64,33 @@ async def test_signed_service_two_company_isolation(monkeypatch):
                 account_id=account_b, event_id="unauthorized", operation="earn", points=100
             ))
         assert exc.value.status_code == 403
+
+        # Reconciliation uses the same scoped signing contract as posting.
+        query = json.dumps({"tenant_id": str(a), "account_id": str(account_a)},
+                           sort_keys=True, separators=(",", ":")).encode()
+        timestamp = str(int(time.time()))
+        key_id = os.environ["LEDGER_E2E_KEY_ID"]
+        secret = os.environ["LEDGER_E2E_KEY_SECRET"].encode()
+        signature = hmac.new(secret,
+            key_id.encode() + b"." + timestamp.encode() + b"." + query,
+            hashlib.sha256).hexdigest()
+        headers = {
+            "X-Ledger-Key-Id": key_id,
+            "X-Ledger-Timestamp": timestamp,
+            "X-Ledger-Signature": signature,
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            checked = await client.post(rust_url + "/internal/v1/reconcile",
+                                        content=query, headers=headers)
+            assert checked.status_code == 200, checked.text
+            assert checked.json() == {"stored": 30, "entries_total": 30}
+            forged = await client.post(rust_url + "/internal/v1/reconcile",
+                content=query.replace(str(a).encode(), str(b).encode()), headers=headers)
+            assert forged.status_code == 401, forged.text
+            without_auth = await client.post(rust_url + "/internal/v1/reconcile",
+                                             content=query)
+            assert without_auth.status_code == 401, without_auth.text
 
         async with owner.begin() as conn:
             await conn.execute(text("SELECT set_config('app.tenant_id',:id,true)"),
