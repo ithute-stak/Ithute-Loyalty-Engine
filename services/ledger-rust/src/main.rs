@@ -3,7 +3,7 @@ fn main() { eprintln!("Build with --features service to run ledger HTTP server")
 
 #[cfg(feature = "service")]
 mod server {
-    use axum::{body::Bytes, extract::State, http::{HeaderMap, StatusCode}, routing::{get, post}, Json, Router};
+    use axum::{body::Bytes, extract::{DefaultBodyLimit, State}, http::{HeaderMap, StatusCode}, routing::{get, post}, Json, Router};
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -188,6 +188,8 @@ mod server {
         let app = Router::new().route("/internal/health", get(ready))
             .route("/internal/v1/commands", post(command))
             .route("/internal/v1/reconcile", post(check))
+            // Raw Bytes extractors have no small JSON limit by default.
+            .layer(DefaultBodyLimit::max(16 * 1024))
             .with_state(AppState { pool, keys: Arc::new(keys) });
         // Private listener only; a reverse proxy or Docker private network is required.
         let bind_address = env::var("LEDGER_BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8090".to_string());
