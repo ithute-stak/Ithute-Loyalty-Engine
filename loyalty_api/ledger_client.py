@@ -19,11 +19,16 @@ class LedgerCommand(BaseModel):
     account_id: uuid.UUID
     event_id: str = Field(min_length=1, max_length=200)
     operation: str
-    points: int | None = Field(default=None, gt=0)
+    points: int | None = Field(default=None, gt=0, le=9223372036854775807)
     original_event_id: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 async def submit_ledger_command(tenant_id: uuid.UUID, command: LedgerCommand) -> dict:
+    # Match Rust's event validation, including its byte-oriented VARCHAR limit.
+    identifiers = (command.event_id, command.original_event_id)
+    if any(value is not None and (not value.strip() or len(value.encode("utf-8")) > 200)
+           for value in identifiers):
+        raise HTTPException(status_code=422, detail="invalid ledger event identifier")
     if command.operation not in {"earn", "redeem", "reverse"}:
         raise HTTPException(status_code=422, detail="invalid ledger operation")
     if (command.operation == "reverse") != (command.original_event_id is not None):
