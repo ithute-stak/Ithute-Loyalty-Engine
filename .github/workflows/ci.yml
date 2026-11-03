@@ -65,15 +65,20 @@ jobs:
           LEDGER_PID=$!
           trap 'kill "$LEDGER_PID" 2>/dev/null || true; cat /tmp/ledger-e2e.log' EXIT
           python - <<'PY'
-          import socket, time
+          import time
+          import urllib.error
+          import urllib.request
+          url = "http://127.0.0.1:8090/internal/health"
           for _ in range(100):
               try:
-                  socket.create_connection(("127.0.0.1", 8090), timeout=0.2).close()
-                  break
-              except OSError:
-                  time.sleep(0.1)
+                  with urllib.request.urlopen(url, timeout=0.5) as response:
+                      if response.status == 204:
+                          break
+              except (OSError, urllib.error.URLError):
+                  pass
+              time.sleep(0.1)
           else:
-              raise SystemExit("Rust ledger failed to bind")
+              raise SystemExit("Rust ledger/database failed readiness probe")
           PY
           python -m pytest -q tests/test_ledger_e2e_live.py --junitxml=/tmp/loyalty-ledger-e2e.xml
       - name: Preserve Rust ledger startup and HTTP test diagnostics
