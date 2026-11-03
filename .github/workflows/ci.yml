@@ -45,6 +45,7 @@ jobs:
         env:
           LEDGER_TEST_DATABASE_URL: postgres://loyalty_ledger:ci_ledger_only@127.0.0.1:5432/loyalty
           LEDGER_FIXTURE_DATABASE_URL: postgres://loyalty:ci_test_only@127.0.0.1:5432/loyalty
+          LEDGER_REQUIRE_POSTGRES_TESTS: "1"
         run: cargo test --manifest-path services/ledger-rust/Cargo.toml --features postgres --test postgres_concurrency
       - name: Live signed client to Rust ledger and PostgreSQL
         env:
@@ -56,6 +57,7 @@ jobs:
           LEDGER_E2E_KEY_ID: ci-a-v1
           LEDGER_E2E_KEY_SECRET: ci-test-key-with-at-least-32-characters-1234
           LEDGER_E2E_TENANT_A: 00000000-0000-4000-8000-000000000001
+          LEDGER_E2E_REQUIRED: "1"
         run: |
           cargo build --manifest-path services/ledger-rust/Cargo.toml --features service
           services/ledger-rust/target/debug/ithute-loyalty-ledger > /tmp/ledger-e2e.log 2>&1 &
