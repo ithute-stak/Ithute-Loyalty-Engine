@@ -18,7 +18,7 @@ async def test_ledger_tenant_is_sourced_from_authenticated_context(monkeypatch):
         sent.update(__import__("json").loads(request.content))
         timestamp = request.headers["X-Ledger-Timestamp"]
         supplied = request.headers["X-Ledger-Signature"]
-        expected = hmac.new(b"x" * 40, b"merchant-a-v1." + timestamp.encode() + b"." + request.content, hashlib.sha256).hexdigest()
+        expected = hmac.new(b"x" * 40, b"POST\n/internal/v1/commands\nmerchant-a-v1." + timestamp.encode() + b"." + request.content, hashlib.sha256).hexdigest()
         assert request.headers["X-Ledger-Key-Id"] == "merchant-a-v1"
         assert hmac.compare_digest(supplied, expected)
         return httpx.Response(200, json={"balance": 23})
