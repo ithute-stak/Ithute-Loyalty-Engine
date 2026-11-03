@@ -25,7 +25,13 @@ async fn fixture(pool: &PgPool) -> (Uuid, Uuid) {
 
 #[tokio::test(flavor = "current_thread")]
 async fn concurrent_redemption_cannot_double_spend() {
-    let Ok(url) = std::env::var("LEDGER_TEST_DATABASE_URL") else { return; };
+    let Ok(url) = std::env::var("LEDGER_TEST_DATABASE_URL") else {
+        assert_ne!(
+            std::env::var("LEDGER_REQUIRE_POSTGRES_TESTS").as_deref(), Ok("1"),
+            "CI requires LEDGER_TEST_DATABASE_URL; do not silently skip PostgreSQL tests"
+        );
+        return;
+    };
     let owner_url = std::env::var("LEDGER_FIXTURE_DATABASE_URL")
         .expect("owner fixture URL required for ledger integration tests");
     assert_ne!(url, owner_url, "runtime and fixture credentials must differ");
@@ -46,7 +52,13 @@ async fn concurrent_redemption_cannot_double_spend() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn retry_refund_and_reconcile() {
-    let Ok(url) = std::env::var("LEDGER_TEST_DATABASE_URL") else { return; };
+    let Ok(url) = std::env::var("LEDGER_TEST_DATABASE_URL") else {
+        assert_ne!(
+            std::env::var("LEDGER_REQUIRE_POSTGRES_TESTS").as_deref(), Ok("1"),
+            "CI requires LEDGER_TEST_DATABASE_URL; do not silently skip PostgreSQL tests"
+        );
+        return;
+    };
     let pool = PgPool::connect(&url).await.unwrap();
     let (tenant, account) = fixture(&pool).await;
     assert_eq!(post(&pool, tenant, account, "purchase", Operation::Earn, 50).await.unwrap(), 50);
