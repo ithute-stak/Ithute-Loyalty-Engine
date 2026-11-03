@@ -38,7 +38,7 @@ async def submit_ledger_command(tenant_id: uuid.UUID, command: LedgerCommand) ->
     timestamp = str(int(time.time()))
     signature = hmac.new(
         settings.ledger_internal_key.encode(),
-        settings.ledger_key_id.encode() + b"." + timestamp.encode() + b"." + body,
+        b"POST\n/internal/v1/commands\n" + settings.ledger_key_id.encode() + b"." + timestamp.encode() + b"." + body,
         hashlib.sha256,
     ).hexdigest()
     try:
