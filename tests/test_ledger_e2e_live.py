@@ -25,6 +25,8 @@ async def test_signed_service_two_company_isolation(monkeypatch):
     url = os.getenv("LEDGER_E2E_OWNER_DATABASE_URL")
     rust_url = os.getenv("LEDGER_E2E_SERVICE_URL")
     if not url or not rust_url:
+        if os.getenv("LEDGER_E2E_REQUIRED") == "1":
+            pytest.fail("mandatory live Rust/PostgreSQL integration test is not configured")
         pytest.skip("live ledger CI fixture not enabled")
     a = uuid.UUID(os.environ["LEDGER_E2E_TENANT_A"])
     b, programme_a, programme_b, account_a, account_b = [uuid.uuid4() for _ in range(5)]
