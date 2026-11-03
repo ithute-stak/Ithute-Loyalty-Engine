@@ -67,6 +67,16 @@ async def test_signed_service_two_company_isolation(monkeypatch):
             ))
         assert exc.value.status_code == 403
 
+        # Reversal must be durable, exactly-once in effect and repeatable.
+        reversal = LedgerCommand(
+            account_id=account_a,
+            event_id="e2e-reverse-redeem",
+            operation="reverse",
+            original_event_id="e2e-redeem",
+        )
+        assert (await submit_ledger_command(a, reversal))["balance"] == 45
+        assert (await submit_ledger_command(a, reversal))["balance"] == 45
+
         # Reconciliation uses the same scoped signing contract as posting.
         query = json.dumps({"tenant_id": str(a), "account_id": str(account_a)},
                            sort_keys=True, separators=(",", ":")).encode()
@@ -86,7 +96,7 @@ async def test_signed_service_two_company_isolation(monkeypatch):
             checked = await client.post(rust_url + "/internal/v1/reconcile",
                                         content=query, headers=headers)
             assert checked.status_code == 200, checked.text
-            assert checked.json() == {"stored": 30, "entries_total": 30}
+            assert checked.json() == {"stored": 45, "entries_total": 45}
             # A correctly signed cross-company read must be forbidden, not only tampering.
             foreign = json.dumps({"tenant_id": str(b), "account_id": str(account_b)},
                                  sort_keys=True, separators=(",", ":")).encode()
@@ -113,8 +123,8 @@ async def test_signed_service_two_company_isolation(monkeypatch):
             entries = (await conn.execute(text("""
                 SELECT count(*),sum(delta) FROM points_entries WHERE account_id=:id
             """), {"id": account_a})).one()
-            assert balance == 30
-            assert entries == (2, 30)
+            assert balance == 45
+            assert entries == (3, 45)
             await conn.execute(text("SELECT set_config('app.tenant_id',:id,true)"),
                                {"id": str(b)})
             assert (await conn.execute(text("""
