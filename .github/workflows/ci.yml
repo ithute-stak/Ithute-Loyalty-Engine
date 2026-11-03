@@ -40,7 +40,7 @@ jobs:
       - name: Require PostgreSQL RLS test configuration
         run: test -n "$TEST_RLS_DATABASE_URL"
       - run: python -m compileall -q loyalty_api tests migrations
-      - run: python -m pytest -q
+      - run: python -m pytest -q --junitxml=/tmp/loyalty-pytest.xml
       - uses: dtolnay/rust-toolchain@stable
       - name: Rust ledger PostgreSQL concurrency tests
         env:
@@ -75,13 +75,22 @@ jobs:
           else:
               raise SystemExit("Rust ledger failed to bind")
           PY
-          python -m pytest -q tests/test_ledger_e2e_live.py
+          python -m pytest -q tests/test_ledger_e2e_live.py --junitxml=/tmp/loyalty-ledger-e2e.xml
       - name: Preserve Rust ledger startup and HTTP test diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: ledger-e2e-service-log
           path: /tmp/ledger-e2e.log
+          if-no-files-found: ignore
+      - name: Preserve Python and end-to-end test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loyalty-test-reports
+          path: |
+            /tmp/loyalty-pytest.xml
+            /tmp/loyalty-ledger-e2e.xml
           if-no-files-found: ignore
       - run: alembic check
       - run: docker build -t loyalty-ci .
