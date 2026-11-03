@@ -59,6 +59,29 @@ async def test_signed_service_two_company_isolation(monkeypatch):
             account_id=account_a, event_id="e2e-redeem", operation="redeem", points=15
         )))["balance"] == 30
 
+        # Reusing an event ID with a different amount or operation is a
+        # conflict, not a second credit or redemption.
+        for operation, amount in (("earn", 46), ("redeem", 45)):
+            with pytest.raises(HTTPException) as conflict:
+                await submit_ledger_command(a, LedgerCommand(
+                    account_id=account_a,
+                    event_id="e2e-earn",
+                    operation=operation,
+                    points=amount,
+                ))
+            assert conflict.value.status_code == 409
+
+        # A failed overdraft must not append an entry or reduce the balance.
+        with pytest.raises(HTTPException) as insufficient:
+            await submit_ledger_command(a, LedgerCommand(
+                account_id=account_a,
+                event_id="e2e-overdraft",
+                operation="redeem",
+                points=31,
+            ))
+        assert insufficient.value.status_code == 409
+
+
         # Even a correctly signed request may not switch to a tenant
         # outside the configured key's scope.
         with pytest.raises(HTTPException) as exc:
