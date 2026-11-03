@@ -24,14 +24,14 @@ class LedgerCommand(BaseModel):
 
 
 async def submit_ledger_command(tenant_id: uuid.UUID, command: LedgerCommand) -> dict:
-    if not settings.ledger_internal_url or len(settings.ledger_internal_key) < 32 or not settings.ledger_key_id:
-        raise HTTPException(status_code=503, detail="ledger service not configured")
     if command.operation not in {"earn", "redeem", "reverse"}:
         raise HTTPException(status_code=422, detail="invalid ledger operation")
     if (command.operation == "reverse") != (command.original_event_id is not None):
         raise HTTPException(status_code=422, detail="invalid reversal fields")
     if (command.operation == "reverse") == (command.points is not None):
         raise HTTPException(status_code=422, detail="invalid points fields")
+    if not settings.ledger_internal_url or len(settings.ledger_internal_key) < 32 or not settings.ledger_key_id:
+        raise HTTPException(status_code=503, detail="ledger service not configured")
     payload = command.model_dump(mode="json")
     payload["tenant_id"] = str(tenant_id)
     body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
