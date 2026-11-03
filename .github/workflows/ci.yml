@@ -73,6 +73,13 @@ jobs:
               raise SystemExit("Rust ledger failed to bind")
           PY
           python -m pytest -q tests/test_ledger_e2e_live.py
+      - name: Preserve Rust ledger startup and HTTP test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledger-e2e-service-log
+          path: /tmp/ledger-e2e.log
+          if-no-files-found: ignore
       - run: alembic check
       - run: docker build -t loyalty-ci .
       - name: Build private Rust ledger image
