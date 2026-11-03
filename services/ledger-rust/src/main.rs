@@ -161,7 +161,7 @@ mod server {
                 .connect_lazy("postgres://unused:unused@localhost:5432/unused").unwrap();
             let state = AppState { pool, keys: Arc::new(keys(tenant)) };
             let command_body = format!(
-                "{{\\"tenant_id\\":\\"{}\\",\\"account_id\\":\\"{}\\",\\"event_id\\":\\"sale\\",\\"operation\\":\\"earn\\",\\"points\\":5}}",
+                r#"{{"tenant_id":"{}","account_id":"{}","event_id":"sale","operation":"earn","points":5}}"#,
                 tenant, Uuid::new_v4()
             );
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
