@@ -88,6 +88,7 @@ mod server {
         Ok(Json(ResultBody { balance }))
     }
     #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct BalanceQuery { tenant_id: Uuid, account_id: Uuid }
     #[derive(Serialize)]
     struct ReconcileBody { stored: i64, entries_total: i64 }
@@ -153,6 +154,25 @@ mod server {
             let response = command(State(state), HeaderMap::new(), Bytes::from(body)).await;
             assert!(matches!(response, Err(StatusCode::UNAUTHORIZED)));
         }
+        #[tokio::test]
+        async fn signed_command_payload_cannot_be_reused_as_reconciliation_query() {
+            let tenant = Uuid::new_v4();
+            let pool = sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://unused:unused@localhost:5432/unused").unwrap();
+            let state = AppState { pool, keys: Arc::new(keys(tenant)) };
+            let command_body = format!(
+                "{{\\"tenant_id\\":\\"{}\\",\\"account_id\\":\\"{}\\",\\"event_id\\":\\"sale\\",\\"operation\\":\\"earn\\",\\"points\\":5}}",
+                tenant, Uuid::new_v4()
+            );
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let response = check(
+                State(state),
+                signed(command_body.as_bytes(), now),
+                Bytes::from(command_body),
+            ).await;
+            assert!(matches!(response, Err(StatusCode::BAD_REQUEST)));
+        }
+
         #[test]
         fn signed_request_checks_signature_key_scope_and_expiry() {
             let a = Uuid::new_v4();
