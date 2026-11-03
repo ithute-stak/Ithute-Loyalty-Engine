@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 jobs:
   python:
     runs-on: ubuntu-latest
@@ -99,6 +100,24 @@ jobs:
           LEDGER_KEY_ID=ci-v1 \
           LEDGER_SIGNING_KEYS_JSON='[{"id":"ci-v1","secret":"ci-test-key-with-at-least-32-characters-1234","tenants":["00000000-0000-4000-8000-000000000001"]}]' \
           docker compose -f compose.yaml -f compose.ledger.yml config --quiet
+          LEDGER_INTERNAL_KEY=ci-test-only-not-for-production-1234567890 \
+          LEDGER_DATABASE_URL=postgres://loyalty_ledger:ci_ledger_only@postgres:5432/loyalty \
+          LEDGER_KEY_ID=ci-v1 \
+          LEDGER_SIGNING_KEYS_JSON='[{"id":"ci-v1","secret":"ci-test-key-with-at-least-32-characters-1234","tenants":["00000000-0000-4000-8000-000000000001"]}]' \
+          docker compose -f compose.yaml -f compose.ledger.yml config --format json > /tmp/loyalty-overlay.json
+          python - <<'PY'
+          import json
+          with open("/tmp/loyalty-overlay.json", encoding="utf-8") as stream:
+              services = json.load(stream)["services"]
+          networks = {name: set(service.get("networks", {})) for name, service in services.items()}
+          assert "default" not in networks["ledger"], "Rust ledger must not join the shared default network"
+          assert "ledger_private" in networks["ledger"] and "ledger_private" in networks["api"]
+          assert "ledger_db" in networks["ledger"] and "ledger_db" in networks["postgres"]
+          assert "ledger_db" not in networks["api"], "API must not join restricted database network"
+          assert "ledger_private" not in networks["postgres"], "DB must not join ledger HTTP network"
+          assert not services["ledger"].get("ports"), "Ledger may not publish host ports"
+          print("Ledger isolation topology verified")
+          PY
           rm .env
 
   rust-ledger:
