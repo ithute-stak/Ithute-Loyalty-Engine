@@ -74,6 +74,9 @@ impl Ledger {
     }
 
     pub fn reverse(&mut self, account: Account, event_id: &str, original_event_id: &str) -> Result<i64, LedgerError> {
+        if event_id.trim().is_empty() || event_id.len() > 200 || original_event_id.trim().is_empty() || original_event_id.len() > 200 {
+            return Err(LedgerError::InvalidAmount);
+        }
         let original_index = *self.event_index
             .get(&(account, original_event_id.to_owned()))
             .ok_or(LedgerError::NotFound)?;
@@ -91,7 +94,7 @@ impl Ledger {
     }
 
     fn post(&mut self, entry: Entry) -> Result<i64, LedgerError> {
-        if entry.event_id.trim().is_empty() {
+        if entry.event_id.trim().is_empty() || entry.event_id.len() > 200 {
             return Err(LedgerError::InvalidAmount);
         }
         let key = (entry.account, entry.event_id.clone());
@@ -189,6 +192,20 @@ mod tests {
         l.redeem(A, "reward", 15).unwrap();
         assert_eq!(l.reverse(A, "refund", "purchase"), Err(LedgerError::InsufficientPoints));
         assert_eq!(l.balance(A), 5);
+    }
+
+    #[test]
+    fn event_ids_must_be_nonblank_and_within_database_limit() {
+        let mut l = Ledger::default();
+        assert_eq!(l.earn(A, "  ", 1), Err(LedgerError::InvalidAmount));
+        assert_eq!(l.earn(A, &"x".repeat(201), 1), Err(LedgerError::InvalidAmount));
+        assert_eq!(l.earn(A, "valid", 10), Ok(10));
+        assert_eq!(l.reverse(A, "   ", "valid"), Err(LedgerError::InvalidAmount));
+        assert_eq!(l.reverse(A, "refund", "   "), Err(LedgerError::InvalidAmount));
+        assert_eq!(l.reverse(A, "refund", &"x".repeat(201)), Err(LedgerError::InvalidAmount));
+        assert_eq!(l.reverse(A, &"x".repeat(201), "valid"), Err(LedgerError::InvalidAmount));
+        assert_eq!(l.balance(A), 10);
+        assert_eq!(l.entries().len(), 1);
     }
 
     #[test]
