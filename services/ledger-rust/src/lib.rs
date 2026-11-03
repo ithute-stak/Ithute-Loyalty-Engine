@@ -43,6 +43,8 @@ pub enum LedgerError {
 #[derive(Default)]
 pub struct Ledger {
     entries: Vec<Entry>,
+    // Persist the result at the moment of each posting for stable idempotent retries.
+    entry_results: Vec<i64>,
     event_index: HashMap<(Account, String), usize>,
     reversals: HashSet<(Account, String)>,
     balances: HashMap<Account, i64>,
@@ -95,7 +97,7 @@ impl Ledger {
         let key = (entry.account, entry.event_id.clone());
         if let Some(&i) = self.event_index.get(&key) {
             if self.entries[i] == entry {
-                return Ok(self.balance(entry.account)); // exact retry
+                return Ok(self.entry_results[i]); // original result, not current balance
             }
             return Err(LedgerError::DuplicateConflict);
         }
@@ -116,6 +118,7 @@ impl Ledger {
         self.event_index.insert(key, i);
         self.balances.insert(entry.account, next);
         self.entries.push(entry);
+        self.entry_results.push(next);
         Ok(next)
     }
 }
@@ -135,6 +138,22 @@ mod tests {
         assert_eq!(l.redeem(A, "reward-1", 35), Ok(65));
         assert_eq!(l.redeem(A, "reward-2", 66), Err(LedgerError::InsufficientPoints));
         assert_eq!(l.balance(A), 65);
+    }
+
+    #[test]
+    fn retry_returns_original_balance_after_later_transactions() {
+        let mut l = Ledger::default();
+        assert_eq!(l.earn(A, "first-sale", 50), Ok(50));
+        assert_eq!(l.redeem(A, "reward", 20), Ok(30));
+        assert_eq!(l.earn(A, "first-sale", 50), Ok(50));
+        assert_eq!(l.balance(A), 30);
+        assert_eq!(l.entries().len(), 2);
+
+        assert_eq!(l.reverse(A, "reverse-reward", "reward"), Ok(50));
+        assert_eq!(l.earn(A, "later-sale", 10), Ok(60));
+        assert_eq!(l.reverse(A, "reverse-reward", "reward"), Ok(50));
+        assert_eq!(l.balance(A), 60);
+        assert_eq!(l.entries().len(), 4);
     }
 
     #[test]
