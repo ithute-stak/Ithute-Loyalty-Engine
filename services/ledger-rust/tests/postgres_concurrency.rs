@@ -59,8 +59,12 @@ async fn retry_refund_and_reconcile() {
         );
         return;
     };
+    let owner_url = std::env::var("LEDGER_FIXTURE_DATABASE_URL")
+        .expect("owner fixture URL required for ledger integration tests");
+    assert_ne!(url, owner_url, "runtime and fixture credentials must differ");
+    let owner_pool = PgPool::connect(&owner_url).await.unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
-    let (tenant, account) = fixture(&pool).await;
+    let (tenant, account) = fixture(&owner_pool).await;
     assert_eq!(post(&pool, tenant, account, "purchase", Operation::Earn, 50).await.unwrap(), 50);
     assert_eq!(post(&pool, tenant, account, "purchase", Operation::Earn, 50).await.unwrap(), 50);
     assert_eq!(reverse(&pool, tenant, account, "refund", "purchase").await.unwrap(), 0);
