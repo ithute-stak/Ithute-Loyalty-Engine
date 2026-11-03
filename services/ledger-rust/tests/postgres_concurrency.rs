@@ -72,7 +72,13 @@ async fn retry_refund_and_reconcile() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn restricted_role_cannot_cross_tenant_account_boundary() {
-    let Ok(runtime_url) = std::env::var("LEDGER_TEST_DATABASE_URL") else { return; };
+    let Ok(runtime_url) = std::env::var("LEDGER_TEST_DATABASE_URL") else {
+        assert_ne!(
+            std::env::var("LEDGER_REQUIRE_POSTGRES_TESTS").as_deref(), Ok("1"),
+            "CI requires LEDGER_TEST_DATABASE_URL; do not silently skip tenant isolation test"
+        );
+        return;
+    };
     let owner_url = std::env::var("LEDGER_FIXTURE_DATABASE_URL")
         .expect("owner fixture database URL required");
     assert_ne!(runtime_url, owner_url);
