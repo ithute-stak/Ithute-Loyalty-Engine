@@ -34,7 +34,7 @@ pub async fn post(
     op: Operation,
     points: i64,
 ) -> Result<i64, PostError> {
-    if points <= 0 || event_id.is_empty() || event_id.len() > 200 {
+    if points <= 0 || event_id.trim().is_empty() || event_id.len() > 200 {
         return Err(PostError::InvalidAmount);
     }
     let delta = match op {
