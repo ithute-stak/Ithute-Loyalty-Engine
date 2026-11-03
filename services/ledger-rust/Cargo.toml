@@ -17,7 +17,7 @@ service = ["postgres", "dep:axum", "dep:serde", "dep:subtle", "dep:hmac", "dep:s
 [dependencies]
 sqlx = { version = "0.7", optional = true, default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid"] }
 tokio = { version = "1", optional = true, features = ["rt", "macros"] }
-uuid = { version = "1", optional = true, features = ["v4"] }
+uuid = { version = "1", optional = true, features = ["v4", "serde"] }
 
 axum = { version = "0.7", optional = true }
 serde = { version = "1", optional = true, features = ["derive"] }
