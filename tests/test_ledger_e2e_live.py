@@ -87,6 +87,16 @@ async def test_signed_service_two_company_isolation(monkeypatch):
                                         content=query, headers=headers)
             assert checked.status_code == 200, checked.text
             assert checked.json() == {"stored": 30, "entries_total": 30}
+            # A correctly signed cross-company read must be forbidden, not only tampering.
+            foreign = json.dumps({"tenant_id": str(b), "account_id": str(account_b)},
+                                 sort_keys=True, separators=(",", ":")).encode()
+            foreign_sig = hmac.new(secret,
+                key_id.encode() + b"." + timestamp.encode() + b"." + foreign,
+                hashlib.sha256).hexdigest()
+            forbidden = await client.post(rust_url + "/internal/v1/reconcile",
+                content=foreign,
+                headers={**headers, "X-Ledger-Signature": foreign_sig})
+            assert forbidden.status_code == 403, forbidden.text
             forged = await client.post(rust_url + "/internal/v1/reconcile",
                 content=query.replace(str(a).encode(), str(b).encode()), headers=headers)
             assert forged.status_code == 401, forged.text
