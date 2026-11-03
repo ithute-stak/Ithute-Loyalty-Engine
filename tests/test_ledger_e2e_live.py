@@ -113,6 +113,14 @@ async def test_signed_service_two_company_isolation(monkeypatch):
             without_auth = await client.post(rust_url + "/internal/v1/reconcile",
                                              content=query)
             assert without_auth.status_code == 401, without_auth.text
+            # Unauthenticated or malformed oversized bodies must be rejected
+            # at the HTTP boundary before signature verification or database work.
+            too_large = await client.post(
+                rust_url + "/internal/v1/commands",
+                content=b"x" * (16 * 1024 + 1),
+                headers={"Content-Type": "application/json"},
+            )
+            assert too_large.status_code == 413, too_large.text
 
         async with owner.begin() as conn:
             await conn.execute(text("SELECT set_config('app.tenant_id',:id,true)"),
