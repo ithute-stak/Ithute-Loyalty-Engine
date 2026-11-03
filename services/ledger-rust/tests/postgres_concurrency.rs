@@ -132,6 +132,11 @@ async fn retry_after_other_postings_returns_original_result_without_mutation() {
     let ledger = PgPool::connect(&runtime_url).await.unwrap();
     let (tenant, account) = fixture(&owner).await;
 
+    assert!(matches!(
+        post(&ledger, tenant, account, " \t ", Operation::Earn, 5).await,
+        Err(PostError::InvalidAmount)
+    ));
+    assert_eq!(reconcile(&ledger, tenant, account).await.unwrap(), (0, 0));
     assert_eq!(post(&ledger, tenant, account, "sale-1", Operation::Earn, 50).await.unwrap(), 50);
     assert_eq!(post(&ledger, tenant, account, "reward-1", Operation::Redeem, 20).await.unwrap(), 30);
 
