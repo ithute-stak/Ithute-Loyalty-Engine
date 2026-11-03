@@ -48,3 +48,37 @@ async def test_ledger_bad_operation_rejected_before_request(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await ledger_client.submit_ledger_command(uuid.uuid4(), command)
     assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_id", ["   ", "é" * 101])
+async def test_ledger_invalid_event_identifier_rejected_locally(monkeypatch, event_id):
+    monkeypatch.setattr(settings, "ledger_internal_url", "")
+    cmd = ledger_client.LedgerCommand(
+        account_id=uuid.uuid4(), event_id=event_id, operation="earn", points=1
+    )
+    with pytest.raises(HTTPException) as exc:
+        await ledger_client.submit_ledger_command(uuid.uuid4(), cmd)
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_ledger_invalid_original_event_identifier_rejected_locally(monkeypatch):
+    monkeypatch.setattr(settings, "ledger_internal_url", "")
+    cmd = ledger_client.LedgerCommand(
+        account_id=uuid.uuid4(), event_id="reversal-1", operation="reverse",
+        original_event_id="  "
+    )
+    with pytest.raises(HTTPException) as exc:
+        await ledger_client.submit_ledger_command(uuid.uuid4(), cmd)
+    assert exc.value.status_code == 422
+
+
+def test_ledger_points_exceeding_bigint_rejected_at_model_boundary():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ledger_client.LedgerCommand(
+            account_id=uuid.uuid4(), event_id="oversized-points",
+            operation="earn", points=2**63
+        )
