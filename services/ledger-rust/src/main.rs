@@ -195,6 +195,15 @@ mod server {
             wrong.insert("x-ledger-key-id", HeaderValue::from_static("other-key"));
             assert!(authorized(&wrong, &keys, "/internal/v1/commands", b"{}").is_none());
             assert!(authorized(&signed("/internal/v1/commands", b"{}", now.saturating_sub(120)), &keys, "/internal/v1/commands", b"{}").is_none());
+            // Future-dated signatures must not bypass the same clock-skew window.
+            assert!(authorized(
+                &signed("/internal/v1/commands", b"{}", now + 120),
+                &keys, "/internal/v1/commands", b"{}"
+            ).is_none());
+            // Missing authentication headers must fail closed.
+            let mut incomplete = h.clone();
+            incomplete.remove("x-ledger-signature");
+            assert!(authorized(&incomplete, &keys, "/internal/v1/commands", b"{}").is_none());
         }
     }
 
